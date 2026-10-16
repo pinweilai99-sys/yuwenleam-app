@@ -535,6 +535,8 @@
   }
   var exId = (unitId) => `exam:${unitId}`;
   async function saveExamRecord(unitId, graded) {
+    const cur = await getExamRecord(unitId);
+    const isFirstGraded = !cur;
     const next = {
       id: exId(unitId),
       unitId,
@@ -548,6 +550,17 @@
       levelsSummary: (graded.levels || []).map((lv) => ({ id: lv.id, name: lv.name, tag: lv.tag, kind: lv.kind, autoScore: lv.autoScore, autoTotal: lv.autoTotal, mastered: lv.mastered })),
       gradedAt: Date.now()
     };
+    if (isFirstGraded || !cur.firstGraded) {
+      next.firstGraded = {
+        autoScore: graded.autoScore,
+        autoTotal: graded.autoTotal,
+        autoRate: graded.autoRate,
+        levelsSummary: next.levelsSummary,
+        gradedAt: next.gradedAt
+      };
+    } else {
+      next.firstGraded = cur.firstGraded;
+    }
     await db().put(STORES.USER_PROGRESS, next);
     return next;
   }
@@ -6352,12 +6365,20 @@
   }
   async function submitAnswer({ lessonId, segmentId, level, questionId, questionText, answerText, choice, correctKey, mode }) {
     const id = questionRecordId(segmentId, level, questionId);
+    const existing = await getQuestionRecord(id);
+    const isFirstAttempt = !existing || !existing.attempts || existing.attempts.length === 0;
     let attempt;
     let autoStatus;
     if (choice !== void 0 && choice !== null && choice !== "") {
       const correct = choice === correctKey;
       attempt = { choice, correct, mode: mode || "book", at: Date.now() };
-      autoStatus = correct ? "mastered" : "none";
+      if (isFirstAttempt) {
+        autoStatus = correct ? "mastered" : "none";
+      } else if (existing.parentStatus === "none") {
+        autoStatus = "none";
+      } else {
+        autoStatus = existing.parentStatus;
+      }
     } else {
       attempt = { text: answerText || "", mode: mode || "book", at: Date.now() };
     }
@@ -6787,13 +6808,17 @@
       unitId,
       explored: [],
       passed: [],
+      firstPassed: [],
       completed: false
     };
   }
   async function markStepPassed(unitId, stepId, correct) {
     const cur = await getBigConceptState(unitId);
-    const explored = cur.explored.includes(stepId) ? cur.explored : [...cur.explored, stepId];
+    const isFirstAttempt = !cur.explored.includes(stepId);
+    const explored = isFirstAttempt ? [...cur.explored, stepId] : cur.explored;
     const passed = correct ? cur.passed.includes(stepId) ? cur.passed : [...cur.passed, stepId] : cur.passed.filter((x) => x !== stepId);
+    const firstPassed = cur.firstPassed || [];
+    const nextFirstPassed = isFirstAttempt && correct && !firstPassed.includes(stepId) ? [...firstPassed, stepId] : firstPassed;
     const completed = isComplete(unitId, passed);
     return saveProgress({
       ...cur,
@@ -6801,6 +6826,7 @@
       unitId,
       explored,
       passed,
+      firstPassed: nextFirstPassed,
       completed
     });
   }
@@ -9053,11 +9079,12 @@ ${optionsText}
     const bcSteps = getInteractiveSteps(unitId);
     if (bcSteps.length) {
       const bcState = await getBigConceptState(unitId);
-      const passed = new Set(bcState.passed || []);
+      const firstPassed = new Set(bcState.firstPassed || []);
+      const explored = new Set(bcState.explored || []);
       gates.bigconcept = makeGate(
-        passed.size,
+        firstPassed.size,
         bcSteps.length,
-        bcSteps.filter((s) => !passed.has(s.id)).map((s) => ({ title: s.prompt || s.id, hint: s.explain || "" }))
+        bcSteps.filter((s) => explored.has(s.id) && !firstPassed.has(s.id)).map((s) => ({ title: s.prompt || s.id, hint: s.explain || "" }))
       );
     }
     if (lessons.length) {
@@ -9105,12 +9132,13 @@ ${optionsText}
     const examDef = getExam(unitId);
     if (examDef) {
       const record = await getExamRecord(unitId);
-      if (record && record.autoTotal > 0) {
-        const pending = (record.levelsSummary || []).filter((lv) => !lv.mastered).map((lv) => ({
+      const source = record && record.firstGraded ? record.firstGraded : record;
+      if (source && source.autoTotal > 0) {
+        const pending = (source.levelsSummary || []).filter((lv) => !lv.mastered).map((lv) => ({
           title: `\u5173\u5361\u300C${lv.name}\u300D`,
-          hint: `\u4E0A\u6B21\u5F97\u5206 ${lv.autoScore}/${lv.autoTotal}${lv.kind === "writing" ? "\uFF08\u4E60\u4F5C\u5173\u9700\u5BB6\u957F\u5224\u5B9A\uFF09" : ""}\uFF1B\u9519\u9898\u89E3\u6790\u5728\u8003\u8BD5\u9875\u9010\u9898\u67E5\u770B\u3002`
+          hint: `\u9996\u6B21\u5F97\u5206 ${lv.autoScore}/${lv.autoTotal}${lv.kind === "writing" ? "\uFF08\u4E60\u4F5C\u5173\u9700\u5BB6\u957F\u5224\u5B9A\uFF09" : ""}\uFF1B\u9519\u9898\u89E3\u6790\u5728\u8003\u8BD5\u9875\u9010\u9898\u67E5\u770B\u3002`
         }));
-        gates.exam = makeGate(record.autoScore, record.autoTotal, pending);
+        gates.exam = makeGate(source.autoScore, source.autoTotal, pending);
       } else {
         const defTotal = (examDef.levels || []).reduce((s, lv) => s + (lv.items || []).length, 0);
         gates.exam = makeGate(0, Math.max(defTotal, 1), [
@@ -9839,7 +9867,7 @@ ${optionsText}
     render();
   }
   async function onBcRestart(a) {
-    await saveProgress({ id: `bigconcept:${a.unit}`, unitId: a.unit, explored: [], passed: [], completed: false });
+    await saveProgress({ id: `bigconcept:${a.unit}`, unitId: a.unit, explored: [], passed: [], firstPassed: [], completed: false });
     bcFeedback = {};
     render();
   }
