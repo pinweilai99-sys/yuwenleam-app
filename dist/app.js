@@ -8976,6 +8976,42 @@
     const examGraded = !!examGradedMap[unitId];
     return reviewReadiness({ bcDone, wordGates, readingDone, examGraded });
   }
+  function collectLessonQuestions(segDef) {
+    const q2 = [];
+    [1, 2, 3].forEach((lv) => {
+      const arr = segDef.questions && segDef.questions[`L${lv}`] || [];
+      arr.forEach((it) => q2.push({ ...it, level: lv }));
+    });
+    return q2;
+  }
+  function countLessonSegmentMastery(segDef, records) {
+    const questions = collectLessonQuestions(segDef);
+    const masteredMap = /* @__PURE__ */ new Map();
+    for (const r of records || []) {
+      if (r.parentStatus === "mastered") masteredMap.set(r.questionId, true);
+    }
+    let mastered = 0;
+    for (const q2 of questions) {
+      if (masteredMap.has(q2.id)) mastered += 1;
+    }
+    return { total: questions.length, mastered };
+  }
+  function countReadingSegmentMastery(segProgress, segDef) {
+    var _a;
+    const choice = segDef.choice || [];
+    const discriminate = segDef.discriminate || [];
+    const expression = segDef.expression || [];
+    const total = choice.length + discriminate.length + expression.length;
+    if (segProgress == null ? void 0 : segProgress.completed) return { total, mastered: total };
+    if (!((_a = segProgress == null ? void 0 : segProgress.firstGraded) == null ? void 0 : _a.results)) return { total, mastered: 0 };
+    let mastered = 0;
+    for (const r of segProgress.firstGraded.results) {
+      if (r.type === "expression") {
+        if (r.done) mastered += 1;
+      } else if (r.correct) mastered += 1;
+    }
+    return { total, mastered };
+  }
   function buildReadingPending(segProgress, segDef, idx, lessonTitle) {
     var _a;
     const segName = `\u300A${lessonTitle}\u300B\u7B2C ${idx + 1} \u6BB5`;
@@ -9034,18 +9070,22 @@ ${optionsText}
       );
     }
     if (lessons.length) {
-      let segTotal = 0, segDone = 0;
+      let qTotal = 0, qDone = 0;
       const pending = [];
       for (const l of lessons) {
         const segs = listSegments(textbook, l.id);
-        segs.forEach((s, i) => {
-          var _a;
-          segTotal += 1;
-          if ((_a = progressMap["seg:" + s.id]) == null ? void 0 : _a.completed) segDone += 1;
-          else pending.push({ title: `\u300A${l.title}\u300B\u7B2C ${i + 1} \u6BB5`, hint: "" });
-        });
+        for (let i = 0; i < segs.length; i += 1) {
+          const s = segs[i];
+          const records = await listQuestionRecords({ segmentId: s.id });
+          const counts = countLessonSegmentMastery(s, records);
+          qTotal += counts.total;
+          qDone += counts.mastered;
+          if (counts.mastered < counts.total) {
+            pending.push({ title: `\u300A${l.title}\u300B\u7B2C ${i + 1} \u6BB5`, hint: "" });
+          }
+        }
       }
-      gates.lessons = makeGate(segDone, segTotal, pending);
+      gates.lessons = makeGate(qDone, qTotal, pending);
     }
     {
       let rTotal = 0, rDone = 0;
@@ -9055,9 +9095,11 @@ ${optionsText}
         if (!rq || !rq.segments) continue;
         const pm = await getReadingProgressMap(l.id);
         Object.keys(rq.segments).forEach((sid, i) => {
-          rTotal += 1;
-          if (pm[sid] && pm[sid].completed) rDone += 1;
-          else pending.push(...buildReadingPending(pm[sid], rq.segments[sid], i, rq.title || l.title));
+          const segDef = rq.segments[sid];
+          const counts = countReadingSegmentMastery(pm[sid], segDef);
+          rTotal += counts.total;
+          rDone += counts.mastered;
+          pending.push(...buildReadingPending(pm[sid], segDef, i, rq.title || l.title));
         });
       }
       if (rTotal > 0) gates.reading = makeGate(rDone, rTotal, pending);
