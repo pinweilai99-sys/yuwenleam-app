@@ -9016,16 +9016,7 @@
     var _a;
     const segName = `\u300A${lessonTitle}\u300B\u7B2C ${idx + 1} \u6BB5`;
     const results = (_a = segProgress == null ? void 0 : segProgress.firstGraded) == null ? void 0 : _a.results;
-    if (!results) {
-      const skills = /* @__PURE__ */ new Set();
-      (segDef.choice || []).forEach((it) => it.skill && skills.add(it.skill));
-      (segDef.discriminate || []).forEach((it) => it.skill && skills.add(it.skill));
-      if ((segDef.expression || []).length) skills.add("\u8868\u8FBE\u4EFB\u52A1");
-      return [{
-        title: `${segName} \xB7 \u5C1A\u672A\u4F5C\u7B54`,
-        hint: `\u672C\u9898\u6BB5\u8986\u76D6\uFF1A${skills.size ? Array.from(skills).join("\u3001") : "\u7CBE\u8BFB\u9898"}\u3002\u9996\u6B21\u63D0\u4EA4\u7B54\u6848\u540E\uFF0C\u8FD9\u91CC\u4F1A\u5217\u51FA\u5177\u4F53\u9519\u9898\u4E0E\u8BB2\u89E3\u3002`
-      }];
-    }
+    if (!results) return [];
     const pending = [];
     for (const r of results) {
       if (r.type === "expression") {
@@ -9080,7 +9071,8 @@ ${optionsText}
           const counts = countLessonSegmentMastery(s, records);
           qTotal += counts.total;
           qDone += counts.mastered;
-          if (counts.mastered < counts.total) {
+          const hasStarted = records && records.length > 0;
+          if (hasStarted && counts.mastered < counts.total) {
             pending.push({ title: `\u300A${l.title}\u300B\u7B2C ${i + 1} \u6BB5`, hint: "" });
           }
         }
