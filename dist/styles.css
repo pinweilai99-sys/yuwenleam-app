@@ -351,7 +351,7 @@ body.parent-mode .hide-student { display:block; }
 .gate-pending ul { margin:8px 0 2px; padding-left:20px; }
 .gate-pending li { margin:6px 0; line-height:1.6; }
 .gate-pending li b { color:#262626; }
-.gp-hint { font-size:13px; color:#8c8c8c; margin-top:2px; }
+.gp-hint { font-size:13px; color:#8c8c8c; margin-top:2px; white-space:pre-line; }
 
 /* ===== 激活门禁（本地许可制）样式 ===== */
 .act-page { display:flex; justify-content:center; padding:40px 16px; }

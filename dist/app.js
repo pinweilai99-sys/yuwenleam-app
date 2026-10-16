@@ -8467,8 +8467,8 @@
       <button class="btn sm" data-action="reading-voice" data-target="${it.id}">\u{1F399} \u8BED\u97F3\u5F55\u5165</button>
       ${done ? '<span class="badge green">\u5DF2\u4F5C\u7B54</span>' : ""}
     </div>
-    ${res && res.value ? `<details class="rd-guide"><summary>\u{1F4A1} \u793A\u8303\u7B54\u6848\u4E0E\u5F15\u5BFC\u601D\u8003</summary>
-      <div class="explain">\u793A\u8303\uFF1A${esc(it.modelAnswer)}<br>\u5F15\u5BFC\uFF1A${esc(it.guide)}</div></details>` : ""}
+    ${graded ? `<details class="rd-guide" open><summary>\u{1F4A1} \u4F18\u79C0\u793A\u8303\u4E0E\u8BB2\u89E3</summary>
+      <div class="explain"><b>\u9898\u76EE\uFF1A</b>${esc(it.prompt)}<br><b>\u4F18\u79C0\u793A\u8303\uFF1A</b>${esc(it.modelAnswer)}<br><b>\u8BB2\u89E3\uFF1A</b>${esc(it.guide)}</div></details>` : ""}
   </div>`;
   }
   function renderReadingSegResult(graded) {
@@ -9005,9 +9005,13 @@
       if (!r.correct) {
         const source = [...segDef.choice || [], ...segDef.discriminate || []].find((it) => it.id === r.id);
         if (source) {
+          const optionsText = (source.options || []).map((o) => `${o.key}. ${o.text}`).join("\n");
           pending.push({
             title: `${segName} \xB7 ${source.skill || "\u7406\u89E3\u9898"}\uFF1A${source.stem}`,
-            hint: `\u4F60\u7684\u9009\u62E9\uFF1A${r.selected || "\u672A\u9009"}\uFF1B\u6B63\u786E\u7B54\u6848\uFF1A${source.answer}\u3002\u89E3\u6790\uFF1A${source.explanation}`
+            hint: `\u9898\u76EE\uFF1A${source.stem}
+\u9009\u9879\uFF1A
+${optionsText}
+\u4F60\u7684\u9009\u62E9\uFF1A${r.selected || "\u672A\u9009"}\uFF1B\u6B63\u786E\u7B54\u6848\uFF1A${source.answer}\u3002\u89E3\u6790\uFF1A${source.explanation}`
           });
         }
       }
