@@ -291,6 +291,29 @@ body.parent-mode .hide-student { display:block; }
 .cp-ex-excerpt { line-height:1.6; margin-bottom:4px; }
 .cp-ex-hl { color:#389e0d; font-size:14px; }
 
+/* 习作学困生引导：课文关系 / 思路生成器 / 词汇银行 / 阶梯 / 从说到写 / 进步评分 */
+.cp-relation-body { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-top:8px; line-height:1.9; }
+.cp-relation-body .cp-line { white-space:pre-wrap; }
+
+.cp-idea { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:8px 0; }
+.cp-idea-q { font-weight:700; margin-bottom:6px; }
+.cp-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.cp-chip { display:inline-block; background:#eef4ff; border:1px solid #cfe0ff; color:#1d4ed8; border-radius:999px; padding:3px 12px; font-size:13px; line-height:1.6; }
+.cp-chip.word { background:#fff7e6; border-color:#ffe0a3; color:#b06a00; }
+
+.cp-bank-group { margin:8px 0; }
+.cp-bank-group-name { font-weight:800; color:var(--brand); margin-bottom:4px; font-size:14px; }
+.cp-bank-group .cp-chips { gap:6px; }
+
+.cp-ladder { display:flex; flex-direction:column; gap:10px; margin-top:8px; }
+.cp-ladder-step { display:flex; gap:10px; align-items:flex-start; background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+.cp-ladder-no { flex:0 0 30px; width:30px; height:30px; line-height:30px; text-align:center; border-radius:8px; background:linear-gradient(135deg,#7c3aed,#2563eb); color:#fff; font-weight:800; }
+.cp-ladder-body { flex:1; }
+
+.cp-speech { background:#f3fbf6; border-color:#bfe9cf; }
+.cp-speech h3 { color:#15803d; }
+
+
 /* ===== 语文园地（儿童友好学习页）样式 ===== */
 .gd-page { padding:6px 2px; }
 .gd-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:10px; margin-top:8px; }
