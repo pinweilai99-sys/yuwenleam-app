@@ -7206,20 +7206,25 @@
 
   // src/core/readingProgress.js
   var segKey = (lessonId, segId) => `reading:${lessonId}:${segId}`;
-  async function saveReadingSegment(lessonId, segId, passed) {
+  async function saveReadingSegment(lessonId, segId, passed, graded = null) {
     const cur = await getProgress(segKey(lessonId, segId)) || {
       id: segKey(lessonId, segId),
       lessonId,
       segmentId: segId
     };
+    const submitted = !!cur.submitted;
     const next = {
       ...cur,
       id: segKey(lessonId, segId),
       lessonId,
       segmentId: segId,
-      completed: !!passed,
+      completed: submitted ? !!cur.completed : !!passed,
+      submitted: true,
       ts: Date.now()
     };
+    if (!submitted && graded) {
+      next.firstGraded = graded;
+    }
     await saveProgress(next);
     return next;
   }
@@ -7230,7 +7235,11 @@
     for (const r of all) {
       if (r.id.startsWith(prefix)) {
         const segId = r.id.slice(prefix.length);
-        map[segId] = { completed: !!r.completed };
+        map[segId] = {
+          completed: !!r.completed,
+          submitted: !!r.submitted,
+          firstGraded: r.firstGraded || null
+        };
       }
     }
     return map;
@@ -8967,6 +8976,44 @@
     const examGraded = !!examGradedMap[unitId];
     return reviewReadiness({ bcDone, wordGates, readingDone, examGraded });
   }
+  function buildReadingPending(segProgress, segDef, idx, lessonTitle) {
+    var _a;
+    const segName = `\u300A${lessonTitle}\u300B\u7B2C ${idx + 1} \u6BB5`;
+    const results = (_a = segProgress == null ? void 0 : segProgress.firstGraded) == null ? void 0 : _a.results;
+    if (!results) {
+      const skills = /* @__PURE__ */ new Set();
+      (segDef.choice || []).forEach((it) => it.skill && skills.add(it.skill));
+      (segDef.discriminate || []).forEach((it) => it.skill && skills.add(it.skill));
+      if ((segDef.expression || []).length) skills.add("\u8868\u8FBE\u4EFB\u52A1");
+      return [{
+        title: `${segName} \xB7 \u5C1A\u672A\u4F5C\u7B54`,
+        hint: `\u672C\u9898\u6BB5\u8986\u76D6\uFF1A${skills.size ? Array.from(skills).join("\u3001") : "\u7CBE\u8BFB\u9898"}\u3002\u9996\u6B21\u63D0\u4EA4\u7B54\u6848\u540E\uFF0C\u8FD9\u91CC\u4F1A\u5217\u51FA\u5177\u4F53\u9519\u9898\u4E0E\u8BB2\u89E3\u3002`
+      }];
+    }
+    const pending = [];
+    for (const r of results) {
+      if (r.type === "expression") {
+        if (!r.done) {
+          const expr = (segDef.expression || []).find((e) => e.id === r.id);
+          pending.push({
+            title: `${segName} \xB7 \u8868\u8FBE\u4EFB\u52A1\u672A\u4F5C\u7B54`,
+            hint: `\u9898\u76EE\uFF1A${(expr == null ? void 0 : expr.prompt) || ""} \u793A\u8303\uFF1A${(expr == null ? void 0 : expr.modelAnswer) || ""} \u5F15\u5BFC\uFF1A${(expr == null ? void 0 : expr.guide) || ""}`
+          });
+        }
+        continue;
+      }
+      if (!r.correct) {
+        const source = [...segDef.choice || [], ...segDef.discriminate || []].find((it) => it.id === r.id);
+        if (source) {
+          pending.push({
+            title: `${segName} \xB7 ${source.skill || "\u7406\u89E3\u9898"}\uFF1A${source.stem}`,
+            hint: `\u4F60\u7684\u9009\u62E9\uFF1A${r.selected || "\u672A\u9009"}\uFF1B\u6B63\u786E\u7B54\u6848\uFF1A${source.answer}\u3002\u89E3\u6790\uFF1A${source.explanation}`
+          });
+        }
+      }
+    }
+    return pending;
+  }
   async function computeGates(unitId) {
     const gates = {};
     const progressMap = await getProgressMap();
@@ -9006,7 +9053,7 @@
         Object.keys(rq.segments).forEach((sid, i) => {
           rTotal += 1;
           if (pm[sid] && pm[sid].completed) rDone += 1;
-          else pending.push({ title: `\u300A${rq.title || l.title}\u300B\u7B2C ${i + 1} \u6BB5`, hint: "" });
+          else pending.push(...buildReadingPending(pm[sid], rq.segments[sid], i, rq.title || l.title));
         });
       }
       if (rTotal > 0) gates.reading = makeGate(rDone, rTotal, pending);
@@ -9798,7 +9845,7 @@
       answers[it.id] = ta ? ta.value : "";
     }
     const graded = gradeReadingSegment(seg, answers);
-    await saveReadingSegment(lessonId, segId, graded.passed);
+    await saveReadingSegment(lessonId, segId, graded.passed, graded);
     readingGraded[segId] = graded;
     render();
   }
