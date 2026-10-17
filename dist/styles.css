@@ -295,6 +295,18 @@ body.parent-mode .hide-student { display:block; }
 .cp-relation-body { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-top:8px; line-height:1.9; }
 .cp-relation-body .cp-line { white-space:pre-wrap; }
 
+/* 课文关系·逐篇分解（心爱之物 / 怎么写它 / 借物抒什么情 / 可借鉴写法） */
+.cp-rel-intro { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-top:8px; line-height:1.8; }
+.cp-rel-list { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+.cp-rel-text { background:#fff; border:1px solid var(--line); border-left:4px solid var(--brand); border-radius:10px; padding:10px 12px; }
+.cp-rel-head { font-weight:800; color:var(--brand); margin-bottom:6px; font-size:15px; }
+.cp-rel-row { display:flex; gap:10px; padding:3px 0; line-height:1.7; }
+.cp-rel-k { flex:0 0 96px; color:#666; font-weight:700; }
+.cp-rel-v { flex:1; }
+.cp-rel-borrow { background:#fff7e6; border-radius:8px; padding:6px 8px; margin-top:4px; }
+.cp-rel-borrow .cp-rel-k { color:#b06a00; }
+.cp-rel-outro { margin-top:10px; padding:10px 12px; background:#eef9e8; border:1px solid #cfe9bf; border-radius:10px; line-height:1.8; color:#2f6b1d; }
+
 .cp-idea { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:8px 0; }
 .cp-idea-q { font-weight:700; margin-bottom:6px; }
 .cp-chips { display:flex; flex-wrap:wrap; gap:8px; }
