@@ -496,6 +496,34 @@
     const r = await db().get(STORES.USER_PROGRESS, cpId(unitId));
     return !!(r && r.learned);
   }
+  var SPACED_ID = "spaced:queue";
+  async function getSpacedQueue() {
+    const r = await db().get(STORES.USER_PROGRESS, SPACED_ID);
+    return { id: SPACED_ID, items: Array.isArray(r && r.items) ? r.items : [] };
+  }
+  async function saveSpacedQueue(items = []) {
+    const next = { id: SPACED_ID, items, updatedAt: Date.now() };
+    await db().put(STORES.USER_PROGRESS, next);
+    return next;
+  }
+  var scfId = (unitId) => `scaffold:${unitId}`;
+  async function saveScaffoldState(unitId, state2) {
+    const cur = await db().get(STORES.USER_PROGRESS, scfId(unitId)) || { id: scfId(unitId), unitId };
+    const next = {
+      ...cur,
+      id: scfId(unitId),
+      unitId,
+      level: state2.level || "S3",
+      streak: Number(state2.streak) || 0,
+      updatedAt: Date.now()
+    };
+    await db().put(STORES.USER_PROGRESS, next);
+    return next;
+  }
+  async function getScaffoldState(unitId) {
+    const r = await db().get(STORES.USER_PROGRESS, scfId(unitId));
+    return { level: r && r.level || "S3", streak: r && Number(r.streak) || 0 };
+  }
   var gdId = (unitId) => `garden:${unitId}`;
   async function getGardenState(unitId) {
     const r = await db().get(STORES.USER_PROGRESS, gdId(unitId));
@@ -534,6 +562,25 @@
     return !!(r && r.learned);
   }
   var exId = (unitId) => `exam:${unitId}`;
+  function examItemResults(graded) {
+    const out = [];
+    for (const lv of graded.levels || []) {
+      for (const it of lv.items || []) {
+        if (!it.auto) continue;
+        out.push({
+          key: it.key,
+          levelId: lv.id,
+          levelName: lv.name,
+          correct: !!it.correct,
+          prompt: it.prompt || "",
+          answer: it.answer || "",
+          userAnswer: it.userAnswer || "",
+          explanation: it.explanation || ""
+        });
+      }
+    }
+    return out;
+  }
   async function saveExamRecord(unitId, graded) {
     const cur = await getExamRecord(unitId);
     const isFirstGraded = !cur;
@@ -548,6 +595,10 @@
       totalLevels: graded.totalLevels,
       perTagWeak: graded.perTagWeak || {},
       levelsSummary: (graded.levels || []).map((lv) => ({ id: lv.id, name: lv.name, tag: lv.tag, kind: lv.kind, autoScore: lv.autoScore, autoTotal: lv.autoTotal, mastered: lv.mastered })),
+      // 预测把握度（元认知）：{ [题目id]: 'sure'|'maybe'|'guess' }
+      confidenceMap: graded.confidenceMap || {},
+      // 逐题结果（供错觉地图/能力雷达回看首次表现）
+      itemResults: examItemResults(graded),
       gradedAt: Date.now()
     };
     if (isFirstGraded || !cur.firstGraded) {
@@ -556,6 +607,8 @@
         autoTotal: graded.autoTotal,
         autoRate: graded.autoRate,
         levelsSummary: next.levelsSummary,
+        confidenceMap: graded.confidenceMap || {},
+        itemResults: next.itemResults,
         gradedAt: next.gradedAt
       };
     } else {
@@ -7013,6 +7066,306 @@
     return { ok: hasRestate && hasEval, hasRestate, hasEval };
   }
 
+  // src/core/ability.js
+  var ABILITY_DIMS = [
+    { no: "\u2460", key: "pick", name: "\u8BC6\u53D6", desc: "\u8BA4\u5B57\u3001\u5B9A\u4F4D\u3001\u63D0\u53D6\u4FE1\u606F" },
+    { no: "\u2461", key: "explain", name: "\u91CA\u4E49", desc: "\u8BF4\u6E05\u5199\u4E86\u4EC0\u4E48\u3001\u4E3A\u4EC0\u4E48\u8FD9\u6837\u5199" },
+    { no: "\u2462", key: "infer", name: "\u63A8\u65AD", desc: "\u8A00\u5916\u4E4B\u610F\u3001\u56E0\u679C\u3001\u4EBA\u7269\u52A8\u673A" },
+    { no: "\u2463", key: "judge", name: "\u9274\u8BC4", desc: "\u6BD4\u8F83\u54EA\u79CD\u8868\u8FBE\u66F4\u597D\u3001\u8BF4\u51FA\u7406\u7531\u3001\u5BA1\u8FA8" },
+    { no: "\u2464", key: "create", name: "\u521B\u8FBE", desc: "\u5199\u4F5C\u3001\u8BB2\u8FF0\u3001\u8BF4\u670D\u3001\u60F3\u8C61" },
+    { no: "\u2465", key: "meta", name: "\u81EA\u8C03", desc: "\u9884\u6D4B\u628A\u63E1\u3001\u89C4\u5212\u3001\u68C0\u67E5\u3001\u4FEE\u6B63" }
+  ];
+  var ABILITY_KEYS = ABILITY_DIMS.map((d) => d.key);
+  var CONFIDENCE_LEVELS = [
+    { key: "sure", label: "\u5F88\u6709\u628A\u63E1", emoji: "\u{1F4AA}" },
+    { key: "maybe", label: "\u6709\u70B9\u628A\u63E1", emoji: "\u{1F914}" },
+    { key: "guess", label: "\u5B8C\u5168\u5728\u731C", emoji: "\u{1F3B2}" }
+  ];
+  var CONFIDENCE_KEYS = CONFIDENCE_LEVELS.map((c) => c.key);
+  var META_TYPES = {
+    mastered: { key: "mastered", label: "\u771F\u638C\u63E1", emoji: "\u2705", tip: "\u7B54\u5BF9\uFF0C\u800C\u4E14\u4F60\u4E8B\u5148\u5C31\u77E5\u9053\u81EA\u5DF1\u4F1A" },
+    lucky: { key: "lucky", label: "\u8FD0\u6C14\u533A", emoji: "\u{1F340}", tip: "\u7B54\u5BF9\u4E86\uFF0C\u4F46\u4F60\u662F\u731C\u7684\u2014\u2014\u8FD8\u4E0D\u7B97\u771F\u4F1A" },
+    illusion: { key: "illusion", label: "\u9519\u89C9\u533A", emoji: "\u26A0\uFE0F", tip: "\u4F60\u4EE5\u4E3A\u5F88\u6709\u628A\u63E1\uFF0C\u5176\u5B9E\u7B54\u9519\u4E86\u2014\u2014\u6700\u9700\u8981\u56DE\u7089" },
+    unknown: { key: "unknown", label: "\u771F\u4E0D\u4F1A", emoji: "\u{1F4D6}", tip: "\u7B54\u9519\uFF0C\u800C\u4E14\u4F60\u81EA\u5DF1\u4E5F\u77E5\u9053\u4E0D\u4F1A\u2014\u2014\u8E0F\u5B9E\u5B66\u5C31\u884C" }
+  };
+  function normalizeAbility(value) {
+    if (value == null) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const byKey = ABILITY_DIMS.find((d) => d.key === raw);
+    if (byKey) return byKey.key;
+    const byName = ABILITY_DIMS.find((d) => d.name === raw);
+    if (byName) return byName.key;
+    const circled = "\u2460\u2461\u2462\u2463\u2464\u2465";
+    const idx = circled.indexOf(raw[0]);
+    const n = idx >= 0 ? idx + 1 : Number(raw[0]);
+    if (Number.isInteger(n) && n >= 1 && n <= 6) return ABILITY_DIMS[n - 1].key;
+    return null;
+  }
+  function normalizeConfidence(value) {
+    const raw = String(value == null ? "" : value).trim();
+    return CONFIDENCE_KEYS.includes(raw) ? raw : null;
+  }
+  function classifyMeta({ correct, confidence }) {
+    const conf = normalizeConfidence(confidence);
+    if (!conf) return "nodata";
+    const ok = !!correct;
+    if (ok && conf === "guess") return "lucky";
+    if (ok) return "mastered";
+    if (!ok && conf === "sure") return "illusion";
+    return "unknown";
+  }
+  function computeAbilityRadar(records = []) {
+    const stat = {};
+    for (const d of ABILITY_DIMS) stat[d.key] = { total: 0, mastered: 0 };
+    for (const r of records || []) {
+      const key = normalizeAbility(r && r.ability);
+      if (!key) continue;
+      const bucket = stat[key];
+      bucket.total += 1;
+      const ok = typeof r.correct === "boolean" ? r.correct : !!r.done;
+      if (ok) bucket.mastered += 1;
+    }
+    return ABILITY_DIMS.map((d) => {
+      const b = stat[d.key];
+      return {
+        no: d.no,
+        key: d.key,
+        name: d.name,
+        desc: d.desc,
+        total: b.total,
+        mastered: b.mastered,
+        rate: b.total === 0 ? null : Math.round(b.mastered / b.total * 100)
+      };
+    });
+  }
+  function buildIllusionMap(records = []) {
+    const out = { mastered: [], lucky: [], illusion: [], unknown: [], nodata: [] };
+    for (const r of records || []) {
+      const type = classifyMeta(r);
+      (out[type] || out.nodata).push(r);
+    }
+    return out;
+  }
+  function computeCalibration(records = []) {
+    let total = 0;
+    let calibrated = 0;
+    for (const r of records || []) {
+      const conf = normalizeConfidence(r && r.confidence);
+      if (!conf) continue;
+      total += 1;
+      const ok = !!r.correct;
+      const wellCalibrated = ok && conf !== "guess" || !ok && conf !== "sure";
+      if (wellCalibrated) calibrated += 1;
+    }
+    return { total, calibrated, rate: total === 0 ? null : Math.round(calibrated / total * 100) };
+  }
+
+  // src/core/illusion.js
+  function collectMetaRecords({ readingQuiz: readingQuiz2, readingProgress = {}, exam: exam2, examRecord } = {}) {
+    const records = [];
+    if (readingQuiz2 && readingQuiz2.lessons) {
+      for (const [lessonId, lesson] of Object.entries(readingQuiz2.lessons)) {
+        const lessonProg = readingProgress[lessonId] || {};
+        for (const [segId, seg] of Object.entries(lesson.segments || {})) {
+          const fg = lessonProg[segId] && lessonProg[segId].firstGraded;
+          if (!fg || !Array.isArray(fg.results)) continue;
+          const confMap = fg.confidenceMap || {};
+          const items = [...seg.choice || [], ...seg.discriminate || []];
+          for (const r of fg.results) {
+            if (r.type === "expression") continue;
+            const item = items.find((i) => i.id === r.id) || {};
+            records.push({
+              id: r.id,
+              source: "\u8BFE\u6587\u7CBE\u8BFB",
+              where: `${lesson.title || lessonId}`,
+              stem: item.stem || "",
+              correct: !!r.correct,
+              confidence: confMap[r.id] || "",
+              ability: item.ability || "",
+              answer: item.answer || r.answer || "",
+              explanation: item.explanation || r.explanation || ""
+            });
+          }
+        }
+      }
+    }
+    if (exam2 && examRecord) {
+      const fg = examRecord.firstGraded || {};
+      const confMap = fg.confidenceMap || examRecord.confidenceMap || {};
+      const items = (exam2.levels || []).flatMap((lv) => (lv.items || []).map((it) => ({ ...it, _levelName: lv.name })));
+      for (const r of fg.itemResults || []) {
+        const id = String(r.key || "").replace(/^c_/, "").replace(/^f_/, "");
+        const item = items.find((i) => i.id === id) || {};
+        records.push({
+          id,
+          source: "\u8003\u8BD5\u8003\u70B9",
+          where: r.levelName || item._levelName || "",
+          stem: item.stem || r.prompt || "",
+          correct: !!r.correct,
+          confidence: confMap[id] || "",
+          ability: item.ability || "",
+          answer: r.answer || "",
+          explanation: r.explanation || ""
+        });
+      }
+    }
+    return records;
+  }
+  function summarizeIllusion(records = []) {
+    const map = buildIllusionMap(records);
+    const calibration = computeCalibration(records);
+    const counts = {
+      mastered: map.mastered.length,
+      lucky: map.lucky.length,
+      illusion: map.illusion.length,
+      unknown: map.unknown.length,
+      nodata: map.nodata.length
+    };
+    return { map, counts, calibration, total: records.length };
+  }
+  function illusionAlert({ counts = {}, calibration = {} } = {}) {
+    if ((counts.illusion || 0) > 0) return true;
+    return typeof calibration.rate === "number" && calibration.rate < 60 && (calibration.total || 0) >= 5;
+  }
+
+  // src/core/scaffold.js
+  var SCAFFOLD_LEVELS = [
+    {
+      key: "S3",
+      name: "S3 \u5168\u652F\u67B6",
+      desc: "\u601D\u8DEF\u751F\u6210\u5668 + \u8BCD\u6C47\u94F6\u884C + \u586B\u7A7A\u63D0\u7EB2 + \u8303\u6587\u5168\u7ED9\u4F60",
+      visible: { ideaPrompts: true, wordBank: true, outline: true, examples: true }
+    },
+    {
+      key: "S2",
+      name: "S2 \u534A\u652F\u67B6",
+      desc: "\u7ED9\u601D\u8DEF\u4E0E\u63D0\u7EB2\u548C\u8303\u6587\uFF0C\u4F46\u4E0D\u518D\u7ED9\u8BCD\u6C47\u94F6\u884C\uFF08\u81EA\u5DF1\u627E\u8BCD\uFF09",
+      visible: { ideaPrompts: true, wordBank: false, outline: true, examples: true }
+    },
+    {
+      key: "S1",
+      name: "S1 \u63D0\u793A\u5361",
+      desc: "\u53EA\u7ED9\u51E0\u4E2A\u63D0\u793A\u95EE\u9898\uFF0C\u81EA\u5DF1\u5217\u63D0\u7EB2",
+      visible: { ideaPrompts: true, wordBank: false, outline: false, examples: false }
+    },
+    {
+      key: "S0",
+      name: "S0 \u65E0\u652F\u67B6",
+      desc: "\u72EC\u7ACB\u5B8C\u6210\uFF0C\u5199\u5B8C\u518D\u7528\u8BC4\u5206\u6807\u51C6\u81EA\u68C0",
+      visible: { ideaPrompts: false, wordBank: false, outline: false, examples: false }
+    }
+  ];
+  var SCAFFOLD_TARGET_STREAK = 2;
+  var DEFAULT_SCAFFOLD = { level: "S3", streak: 0 };
+  function scaffoldIndex(level) {
+    const i = SCAFFOLD_LEVELS.findIndex((l) => l.key === level);
+    return i < 0 ? 0 : i;
+  }
+  function scaffoldLevelOf(level) {
+    return SCAFFOLD_LEVELS[scaffoldIndex(level)];
+  }
+  function scaffoldVisible(level) {
+    return scaffoldLevelOf(level).visible;
+  }
+  function evaluateComposition(text = "", minLength = 500) {
+    const length = String(text || "").replace(/\s/g, "").length;
+    return { length, ok: length >= minLength };
+  }
+  function applyScaffold(state2 = DEFAULT_SCAFFOLD, ok) {
+    const cur = { level: state2.level || "S3", streak: Number(state2.streak) || 0 };
+    const idx = scaffoldIndex(cur.level);
+    if (ok) {
+      const streak = cur.streak + 1;
+      if (streak >= SCAFFOLD_TARGET_STREAK && idx < SCAFFOLD_LEVELS.length - 1) {
+        const next = SCAFFOLD_LEVELS[idx + 1];
+        return {
+          level: next.key,
+          streak: 0,
+          changed: true,
+          direction: "fade",
+          message: `\u{1F389} \u4F60\u8FDE\u7EED ${SCAFFOLD_TARGET_STREAK} \u6B21\u5199\u6EE1\u5B57\u6570\uFF0C\u652F\u67B6\u81EA\u52A8\u64A4\u6389\u4E00\u5C42\uFF1A\u73B0\u5728\u662F ${next.name}\u2014\u2014${next.desc}\u3002\u8FD9\u662F\u8FDB\u6B65\uFF0C\u4E0D\u662F\u53D8\u96BE\u3002`
+        };
+      }
+      return {
+        level: cur.level,
+        streak,
+        changed: false,
+        direction: "hold",
+        message: streak >= SCAFFOLD_TARGET_STREAK ? `\u4F60\u5DF2\u7ECF\u80FD\u72EC\u7ACB\u5B8C\u6210\u4E86\uFF0C\u4FDD\u6301\u4F4F\uFF01` : `\u{1F44D} \u8FD9\u6B21\u8FBE\u6807\uFF01\u518D\u6210\u529F ${SCAFFOLD_TARGET_STREAK - streak} \u6B21\uFF0C\u5C31\u80FD\u64A4\u6389\u4E00\u5C42\u652F\u67B6\u3002`
+      };
+    }
+    if (idx > 0) {
+      const next = SCAFFOLD_LEVELS[idx - 1];
+      return {
+        level: next.key,
+        streak: 0,
+        changed: true,
+        direction: "restore",
+        message: `\u6CA1\u5173\u7CFB\uFF0C\u5148\u628A\u652F\u67B6\u653E\u56DE\u6765\uFF1A${next.name}\u2014\u2014${next.desc}\u3002\u653E\u56DE\u652F\u67B6\u4E0D\u662F\u9000\u6B65\uFF0C\u662F\u8BA9\u81EA\u5DF1\u7AD9\u5F97\u66F4\u7A33\u3002`
+      };
+    }
+    return {
+      level: cur.level,
+      streak: 0,
+      changed: false,
+      direction: "hold",
+      message: "\u8FD9\u6B21\u6CA1\u5199\u6EE1\uFF0C\u5148\u7167\u7740\u652F\u67B6\u518D\u7EC3\u4E00\u6B21\uFF0C\u4E0B\u6B21\u4E00\u5B9A\u884C\u3002"
+    };
+  }
+  function requestMoreScaffold(state2 = DEFAULT_SCAFFOLD) {
+    const idx = scaffoldIndex(state2.level);
+    if (idx <= 0) {
+      return { level: state2.level, streak: 0, changed: false, direction: "hold", message: "\u5DF2\u7ECF\u662F\u5168\u652F\u67B6\u4E86\uFF0C\u653E\u5FC3\u7528\u3002" };
+    }
+    const next = SCAFFOLD_LEVELS[idx - 1];
+    return {
+      level: next.key,
+      streak: 0,
+      changed: true,
+      direction: "restore",
+      message: `\u597D\u7684\uFF0C\u5DF2\u8C03\u56DE ${next.name}\uFF1A${next.desc}\u3002\u9700\u8981\u5E2E\u52A9\u968F\u65F6\u70B9\uFF0C\u8FD9\u4E0D\u4E22\u4EBA\u3002`
+    };
+  }
+
+  // src/core/spaced.js
+  var DAY = 24 * 60 * 60 * 1e3;
+  var SPACED_INTERVALS = [1, 3, 7];
+  function createSpacedItem({ id, title, source = "", answer = "", explanation = "" }, now = Date.now()) {
+    return {
+      id,
+      title,
+      source,
+      answer,
+      explanation,
+      stage: 0,
+      dueAt: now + SPACED_INTERVALS[0] * DAY,
+      createdAt: now,
+      graduated: false
+    };
+  }
+  function dueItems(items = [], now = Date.now()) {
+    return (items || []).filter((it) => !it.graduated && (it.dueAt || 0) <= now);
+  }
+  function advanceSpacedItem(item, ok, now = Date.now()) {
+    const stage = Number(item.stage) || 0;
+    if (!ok) {
+      return { ...item, stage: 0, graduated: false, lastResult: "miss", lastAt: now, dueAt: now + SPACED_INTERVALS[0] * DAY };
+    }
+    if (stage >= SPACED_INTERVALS.length - 1) {
+      return { ...item, graduated: true, lastResult: "ok", lastAt: now, dueAt: now + SPACED_INTERVALS[stage] * DAY };
+    }
+    const ns = stage + 1;
+    return { ...item, stage: ns, graduated: false, lastResult: "ok", lastAt: now, dueAt: now + SPACED_INTERVALS[ns] * DAY };
+  }
+  function mergeSpacedItem(items = [], item) {
+    const list = Array.isArray(items) ? items.slice() : [];
+    const idx = list.findIndex((it) => it.id === item.id);
+    if (idx >= 0) return { items: list, added: false };
+    list.push(item);
+    return { items: list, added: true };
+  }
+
   // src/core/gateProgress.js
   function makeGate(mastered, total, pending = []) {
     const t = Math.max(0, Number(total) || 0);
@@ -7100,15 +7453,15 @@
         tag: "\u591A\u97F3\u5B57",
         kind: "choice",
         items: [
-          { id: "d1", stem: "\u201C\u76DB\u996D\u201D\u7684\u201C\u76DB\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "sh\xE8ng" }, { key: "B", text: "ch\xE9ng" }], answer: "B", explanation: "\u201C\u76DB\u201D\u8868\u793A\u628A\u4E1C\u897F\u653E\u8FDB\u53BB\u3001\u5BB9\u7EB3\u65F6\u8BFB ch\xE9ng\uFF08\u76DB\u996D\u3001\u76DB\u6EE1\uFF09\uFF1B\u8868\u793A\u5174\u65FA\u70ED\u70C8\u65F6\u8BFB sh\xE8ng\uFF08\u76DB\u5F00\u3001\u65FA\u76DB\uFF09\u3002" },
-          { id: "d2", stem: "\u201C\u6311\u6218\u201D\u7684\u201C\u6311\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "ti\u0101o" }, { key: "B", text: "ti\u01CEo" }], answer: "B", explanation: "\u201C\u6311\u201D\u8BFB ti\u01CEo \u65F6\u8868\u793A\u62E8\u52A8\u3001\u5F15\u8D77\uFF08\u6311\u6218\u3001\u6311\u62E8\uFF09\uFF1B\u8BFB ti\u0101o \u65F6\u8868\u793A\u62E3\u9009\u3001\u7528\u80A9\u62C5\uFF08\u6311\u62E3\u3001\u6311\u53BB\uFF09\u3002" },
-          { id: "d3", stem: "\u201C\u8336\u51E0\u201D\u7684\u201C\u51E0\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "j\u012B" }, { key: "B", text: "j\u01D0" }], answer: "A", explanation: "\u201C\u51E0\u201D\u8BFB j\u012B \u65F6\u8868\u793A\u5C0F\u684C\u5B50\u6216\u63A5\u8FD1\uFF08\u8336\u51E0\u3001\u51E0\u4E4E\uFF09\uFF1B\u8BFB j\u01D0 \u65F6\u8868\u793A\u8BE2\u95EE\u6570\u91CF\uFF08\u51E0\u4E2A\u3001\u51E0\u5929\uFF09\u3002" },
-          { id: "d4", stem: "\u201C\u79CD\u5730\u201D\u7684\u201C\u79CD\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "zh\u01D2ng" }, { key: "B", text: "zh\xF2ng" }], answer: "B", explanation: "\u201C\u79CD\u201D\u8BFB zh\xF2ng \u65F6\u8868\u793A\u79CD\u690D\uFF08\u79CD\u5730\u3001\u79CD\u82B1\uFF09\uFF1B\u8BFB zh\u01D2ng \u65F6\u8868\u793A\u79CD\u5B50\u3001\u7C7B\u522B\uFF08\u79CD\u5B50\u3001\u79CD\u7C7B\uFF09\u3002" },
-          { id: "d5", stem: "\u201C\u4FBF\u5B9C\u201D\u7684\u201C\u4FBF\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "pi\xE1n" }, { key: "B", text: "bi\xE0n" }], answer: "A", explanation: "\u201C\u4FBF\u201D\u8BFB pi\xE1n \u65F6\u7528\u4E8E\u201C\u4FBF\u5B9C\u3001\u5927\u8179\u4FBF\u4FBF\u201D\uFF1B\u8BFB bi\xE0n \u65F6\u8868\u793A\u65B9\u4FBF\u3001\u4FBF\u5229\u3002" },
-          { id: "d6", stem: "\u201C\u7A7A\u5730\u201D\u7684\u201C\u7A7A\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "k\u014Dng" }, { key: "B", text: "k\xF2ng" }], answer: "B", explanation: "\u201C\u7A7A\u201D\u8BFB k\xF2ng \u65F6\u8868\u793A\u95F2\u7740\u3001\u6CA1\u88AB\u5360\u7528\u7684\uFF08\u7A7A\u5730\u3001\u586B\u7A7A\uFF09\uFF1B\u8BFB k\u014Dng \u65F6\u8868\u793A\u5929\u7A7A\u3001\u6CA1\u6709\u5185\u5BB9\uFF08\u5929\u7A7A\u3001\u7A7A\u6C14\uFF09\u3002" },
-          { id: "d7", stem: "\u201C\u6328\u8FD1\u201D\u7684\u201C\u6328\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "\u0101i" }, { key: "B", text: "\xE1i" }], answer: "A", explanation: "\u201C\u6328\u201D\u8BFB \u0101i \u65F6\u8868\u793A\u9760\u8FD1\u3001\u987A\u7740\uFF08\u6328\u8FD1\u3001\u6328\u7740\uFF09\uFF1B\u8BFB \xE1i \u65F6\u8868\u793A\u906D\u53D7\u3001\u8270\u96BE\u5730\u5EA6\u8FC7\uFF08\u6328\u6253\u3001\u6328\u997F\uFF09\u3002" },
-          { id: "d8", stem: "\u201C\u6210\u719F\u201D\u7684\u201C\u719F\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "sh\xFA" }, { key: "B", text: "sh\xF3u" }], answer: "A", explanation: "\u201C\u719F\u201D\u5728\u4E66\u9762\u53CA\u591A\u6570\u8BCD\u8BED\u4E2D\u8BFB sh\xFA\uFF08\u6210\u719F\u3001\u719F\u7761\uFF09\uFF1B\u53E3\u8BED\u201C\u719F\u900F\u4E86\u3001\u719F\u4E86\u201D\u5E38\u8BFB sh\xF3u\uFF0C\u6807\u51C6\u97F3\u53D6 sh\xFA\u3002" },
-          { id: "d9", stem: "\u201C\u4F3C\u7684\u201D\u7684\u201C\u4F3C\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "s\xEC" }, { key: "B", text: "sh\xEC" }], answer: "B", explanation: "\u201C\u4F3C\u201D\u8BFB sh\xEC \u4EC5\u7528\u4E8E\u201C\u4F3C\u7684\u201D\uFF1B\u8BFB s\xEC \u65F6\u8868\u793A\u50CF\uFF08\u76F8\u4F3C\u3001\u4F3C\u4E4E\uFF09\u3002" }
+          { id: "d1", ability: "\u2460", stem: "\u201C\u76DB\u996D\u201D\u7684\u201C\u76DB\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "sh\xE8ng" }, { key: "B", text: "ch\xE9ng" }], answer: "B", explanation: "\u201C\u76DB\u201D\u8868\u793A\u628A\u4E1C\u897F\u653E\u8FDB\u53BB\u3001\u5BB9\u7EB3\u65F6\u8BFB ch\xE9ng\uFF08\u76DB\u996D\u3001\u76DB\u6EE1\uFF09\uFF1B\u8868\u793A\u5174\u65FA\u70ED\u70C8\u65F6\u8BFB sh\xE8ng\uFF08\u76DB\u5F00\u3001\u65FA\u76DB\uFF09\u3002" },
+          { id: "d2", ability: "\u2460", stem: "\u201C\u6311\u6218\u201D\u7684\u201C\u6311\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "ti\u0101o" }, { key: "B", text: "ti\u01CEo" }], answer: "B", explanation: "\u201C\u6311\u201D\u8BFB ti\u01CEo \u65F6\u8868\u793A\u62E8\u52A8\u3001\u5F15\u8D77\uFF08\u6311\u6218\u3001\u6311\u62E8\uFF09\uFF1B\u8BFB ti\u0101o \u65F6\u8868\u793A\u62E3\u9009\u3001\u7528\u80A9\u62C5\uFF08\u6311\u62E3\u3001\u6311\u53BB\uFF09\u3002" },
+          { id: "d3", ability: "\u2460", stem: "\u201C\u8336\u51E0\u201D\u7684\u201C\u51E0\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "j\u012B" }, { key: "B", text: "j\u01D0" }], answer: "A", explanation: "\u201C\u51E0\u201D\u8BFB j\u012B \u65F6\u8868\u793A\u5C0F\u684C\u5B50\u6216\u63A5\u8FD1\uFF08\u8336\u51E0\u3001\u51E0\u4E4E\uFF09\uFF1B\u8BFB j\u01D0 \u65F6\u8868\u793A\u8BE2\u95EE\u6570\u91CF\uFF08\u51E0\u4E2A\u3001\u51E0\u5929\uFF09\u3002" },
+          { id: "d4", ability: "\u2460", stem: "\u201C\u79CD\u5730\u201D\u7684\u201C\u79CD\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "zh\u01D2ng" }, { key: "B", text: "zh\xF2ng" }], answer: "B", explanation: "\u201C\u79CD\u201D\u8BFB zh\xF2ng \u65F6\u8868\u793A\u79CD\u690D\uFF08\u79CD\u5730\u3001\u79CD\u82B1\uFF09\uFF1B\u8BFB zh\u01D2ng \u65F6\u8868\u793A\u79CD\u5B50\u3001\u7C7B\u522B\uFF08\u79CD\u5B50\u3001\u79CD\u7C7B\uFF09\u3002" },
+          { id: "d5", ability: "\u2460", stem: "\u201C\u4FBF\u5B9C\u201D\u7684\u201C\u4FBF\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "pi\xE1n" }, { key: "B", text: "bi\xE0n" }], answer: "A", explanation: "\u201C\u4FBF\u201D\u8BFB pi\xE1n \u65F6\u7528\u4E8E\u201C\u4FBF\u5B9C\u3001\u5927\u8179\u4FBF\u4FBF\u201D\uFF1B\u8BFB bi\xE0n \u65F6\u8868\u793A\u65B9\u4FBF\u3001\u4FBF\u5229\u3002" },
+          { id: "d6", ability: "\u2460", stem: "\u201C\u7A7A\u5730\u201D\u7684\u201C\u7A7A\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "k\u014Dng" }, { key: "B", text: "k\xF2ng" }], answer: "B", explanation: "\u201C\u7A7A\u201D\u8BFB k\xF2ng \u65F6\u8868\u793A\u95F2\u7740\u3001\u6CA1\u88AB\u5360\u7528\u7684\uFF08\u7A7A\u5730\u3001\u586B\u7A7A\uFF09\uFF1B\u8BFB k\u014Dng \u65F6\u8868\u793A\u5929\u7A7A\u3001\u6CA1\u6709\u5185\u5BB9\uFF08\u5929\u7A7A\u3001\u7A7A\u6C14\uFF09\u3002" },
+          { id: "d7", ability: "\u2460", stem: "\u201C\u6328\u8FD1\u201D\u7684\u201C\u6328\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "\u0101i" }, { key: "B", text: "\xE1i" }], answer: "A", explanation: "\u201C\u6328\u201D\u8BFB \u0101i \u65F6\u8868\u793A\u9760\u8FD1\u3001\u987A\u7740\uFF08\u6328\u8FD1\u3001\u6328\u7740\uFF09\uFF1B\u8BFB \xE1i \u65F6\u8868\u793A\u906D\u53D7\u3001\u8270\u96BE\u5730\u5EA6\u8FC7\uFF08\u6328\u6253\u3001\u6328\u997F\uFF09\u3002" },
+          { id: "d8", ability: "\u2460", stem: "\u201C\u6210\u719F\u201D\u7684\u201C\u719F\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "sh\xFA" }, { key: "B", text: "sh\xF3u" }], answer: "A", explanation: "\u201C\u719F\u201D\u5728\u4E66\u9762\u53CA\u591A\u6570\u8BCD\u8BED\u4E2D\u8BFB sh\xFA\uFF08\u6210\u719F\u3001\u719F\u7761\uFF09\uFF1B\u53E3\u8BED\u201C\u719F\u900F\u4E86\u3001\u719F\u4E86\u201D\u5E38\u8BFB sh\xF3u\uFF0C\u6807\u51C6\u97F3\u53D6 sh\xFA\u3002" },
+          { id: "d9", ability: "\u2460", stem: "\u201C\u4F3C\u7684\u201D\u7684\u201C\u4F3C\u201D\u5E94\u9009\u8BFB\u97F3\uFF08 \uFF09", options: [{ key: "A", text: "s\xEC" }, { key: "B", text: "sh\xEC" }], answer: "B", explanation: "\u201C\u4F3C\u201D\u8BFB sh\xEC \u4EC5\u7528\u4E8E\u201C\u4F3C\u7684\u201D\uFF1B\u8BFB s\xEC \u65F6\u8868\u793A\u50CF\uFF08\u76F8\u4F3C\u3001\u4F3C\u4E4E\uFF09\u3002" }
         ]
       },
       // ===== 关卡3：日积月累·古诗默写（填空，自动判） =====
@@ -7118,8 +7471,8 @@
         tag: "\u65E5\u79EF\u6708\u7D2F",
         kind: "fill",
         items: [
-          { id: "f1", stem: "\u6545\u4EBA\u897F\u8F9E\u9EC4\u9E64\u697C\uFF0C\u70DF\u82B1\u4E09\u6708\u4E0B\u3010\u3011\u3002\u5B64\u5E06\u8FDC\u5F71\u78A7\u7A7A\u5C3D\uFF0C\u552F\u89C1\u3010\u3011\u5929\u9645\u6D41\u3002", blanks: ["\u626C\u5DDE", "\u957F\u6C5F"], note: "\u674E\u767D\u300A\u9EC4\u9E64\u697C\u9001\u5B5F\u6D69\u7136\u4E4B\u5E7F\u9675\u300B\uFF0C\u501F\u9001\u522B\u4E4B\u666F\u6292\u53D1\u4F9D\u4F9D\u60DC\u522B\u4E4B\u60C5\u3002" },
-          { id: "f2", stem: "\u5782\u7DCC\u996E\u6E05\u9732\uFF0C\u6D41\u54CD\u51FA\u758F\u6850\u3002\u5C45\u9AD8\u58F0\u81EA\u8FDC\uFF0C\u3010\u3011\u85C9\u79CB\u98CE\u3002", blanks: ["\u975E\u662F"], note: "\u865E\u4E16\u5357\u300A\u8749\u300B\uFF0C\u501F\u8749\u5C45\u9AD8\u996E\u9732\u3001\u58F0\u4F20\u8FDC\u65B9\uFF0C\u5BC4\u6258\u54C1\u683C\u9AD8\u6D01\u3001\u4E0D\u51ED\u5916\u529B\u3002" }
+          { id: "f1", ability: "\u2460", stem: "\u6545\u4EBA\u897F\u8F9E\u9EC4\u9E64\u697C\uFF0C\u70DF\u82B1\u4E09\u6708\u4E0B\u3010\u3011\u3002\u5B64\u5E06\u8FDC\u5F71\u78A7\u7A7A\u5C3D\uFF0C\u552F\u89C1\u3010\u3011\u5929\u9645\u6D41\u3002", blanks: ["\u626C\u5DDE", "\u957F\u6C5F"], note: "\u674E\u767D\u300A\u9EC4\u9E64\u697C\u9001\u5B5F\u6D69\u7136\u4E4B\u5E7F\u9675\u300B\uFF0C\u501F\u9001\u522B\u4E4B\u666F\u6292\u53D1\u4F9D\u4F9D\u60DC\u522B\u4E4B\u60C5\u3002" },
+          { id: "f2", ability: "\u2460", stem: "\u5782\u7DCC\u996E\u6E05\u9732\uFF0C\u6D41\u54CD\u51FA\u758F\u6850\u3002\u5C45\u9AD8\u58F0\u81EA\u8FDC\uFF0C\u3010\u3011\u85C9\u79CB\u98CE\u3002", blanks: ["\u975E\u662F"], note: "\u865E\u4E16\u5357\u300A\u8749\u300B\uFF0C\u501F\u8749\u5C45\u9AD8\u996E\u9732\u3001\u58F0\u4F20\u8FDC\u65B9\uFF0C\u5BC4\u6258\u54C1\u683C\u9AD8\u6D01\u3001\u4E0D\u51ED\u5916\u529B\u3002" }
         ]
       },
       // ===== 关卡4：日积月累·常识（作者朝代 + 四字词运用，自动判） =====
@@ -7129,10 +7482,10 @@
         tag: "\u65E5\u79EF\u6708\u7D2F",
         kind: "choice",
         items: [
-          { id: "j1", stem: "\u300A\u9EC4\u9E64\u697C\u9001\u5B5F\u6D69\u7136\u4E4B\u5E7F\u9675\u300B\u7684\u4F5C\u8005\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u674E\u767D\uFF08\u5510\uFF09" }, { key: "B", text: "\u865E\u4E16\u5357\uFF08\u5510\uFF09" }, { key: "C", text: "\u675C\u752B\uFF08\u5510\uFF09" }], answer: "A", explanation: "\u672C\u8BD7\u4F5C\u8005\u4E3A\u5510\u4EE3\u674E\u767D\uFF0C\u201C\u6545\u4EBA\u897F\u8F9E\u9EC4\u9E64\u697C\u201D\u5373\u51FA\u81EA\u6B64\u8BD7\u3002" },
-          { id: "j2", stem: "\u201C\u5C45\u9AD8\u58F0\u81EA\u8FDC\uFF0C\u975E\u662F\u85C9\u79CB\u98CE\u201D\u51FA\u81EA\uFF08 \uFF09", options: [{ key: "A", text: "\u674E\u767D\u300A\u9EC4\u9E64\u697C\u300B" }, { key: "B", text: "\u865E\u4E16\u5357\u300A\u8749\u300B" }, { key: "C", text: "\u5468\u6566\u9890\u300A\u7231\u83B2\u8BF4\u300B" }], answer: "B", explanation: "\u51FA\u81EA\u5510\u4EE3\u865E\u4E16\u5357\u7684\u548F\u7269\u8BD7\u300A\u8749\u300B\uFF0C\u501F\u8749\u5BC4\u6258\u9AD8\u6D01\u54C1\u683C\u3002" },
-          { id: "j3", stem: "\u5F62\u5BB9\u9999\u6C14\u6D53\u90C1\u3001\u98D8\u6563\u5F88\u8FDC\uFF0C\u5E94\u586B\u8BCD\u8BED\uFF08 \uFF09", options: [{ key: "A", text: "\u9999\u98D8\u5341\u91CC" }, { key: "B", text: "\u795E\u6C14\u5341\u8DB3" }, { key: "C", text: "\u9C9C\u7EA2\u5AE9\u7EFF" }], answer: "A", explanation: "\u201C\u9999\u98D8\u5341\u91CC\u201D\u5F62\u5BB9\u9999\u6C14\u6D53\u90C1\u3001\u98D8\u5F97\u5F88\u8FDC\uFF0C\u5E38\u7528\u4E8E\u5199\u82B1\u9999\uFF1B\u53E6\u4E24\u8BCD\u5206\u522B\u5F62\u5BB9\u5F97\u610F\u795E\u6001\u4E0E\u679C\u5B9E\u8272\u6CFD\u3002" },
-          { id: "j4", stem: "\u63CF\u5199\u5C0F\u73CD\u73E0\u9E1F\u201C\u5341\u5206\u5F97\u610F\u3001\u7CBE\u795E\u9971\u6EE1\u201D\u7684\u6837\u5B50\uFF0C\u53EF\u7528\uFF08 \uFF09", options: [{ key: "A", text: "\u9C9C\u7EA2\u5AE9\u7EFF" }, { key: "B", text: "\u795E\u6C14\u5341\u8DB3" }, { key: "C", text: "\u9999\u98D8\u5341\u91CC" }], answer: "B", explanation: "\u201C\u795E\u6C14\u5341\u8DB3\u201D\u5F62\u5BB9\u5341\u5206\u5F97\u610F\u3001\u7CBE\u795E\u9971\u6EE1\u7684\u6837\u5B50\uFF0C\u6587\u4E2D\u5199\u5C0F\u73CD\u73E0\u9E1F\u7AD9\u5728\u4E66\u67B6\u4E0A\u5544\u540D\u5B57\u5373\u6B64\u6001\u3002" }
+          { id: "j1", ability: "\u2460", stem: "\u300A\u9EC4\u9E64\u697C\u9001\u5B5F\u6D69\u7136\u4E4B\u5E7F\u9675\u300B\u7684\u4F5C\u8005\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u674E\u767D\uFF08\u5510\uFF09" }, { key: "B", text: "\u865E\u4E16\u5357\uFF08\u5510\uFF09" }, { key: "C", text: "\u675C\u752B\uFF08\u5510\uFF09" }], answer: "A", explanation: "\u672C\u8BD7\u4F5C\u8005\u4E3A\u5510\u4EE3\u674E\u767D\uFF0C\u201C\u6545\u4EBA\u897F\u8F9E\u9EC4\u9E64\u697C\u201D\u5373\u51FA\u81EA\u6B64\u8BD7\u3002" },
+          { id: "j2", ability: "\u2460", stem: "\u201C\u5C45\u9AD8\u58F0\u81EA\u8FDC\uFF0C\u975E\u662F\u85C9\u79CB\u98CE\u201D\u51FA\u81EA\uFF08 \uFF09", options: [{ key: "A", text: "\u674E\u767D\u300A\u9EC4\u9E64\u697C\u300B" }, { key: "B", text: "\u865E\u4E16\u5357\u300A\u8749\u300B" }, { key: "C", text: "\u5468\u6566\u9890\u300A\u7231\u83B2\u8BF4\u300B" }], answer: "B", explanation: "\u51FA\u81EA\u5510\u4EE3\u865E\u4E16\u5357\u7684\u548F\u7269\u8BD7\u300A\u8749\u300B\uFF0C\u501F\u8749\u5BC4\u6258\u9AD8\u6D01\u54C1\u683C\u3002" },
+          { id: "j3", ability: "\u2460", stem: "\u5F62\u5BB9\u9999\u6C14\u6D53\u90C1\u3001\u98D8\u6563\u5F88\u8FDC\uFF0C\u5E94\u586B\u8BCD\u8BED\uFF08 \uFF09", options: [{ key: "A", text: "\u9999\u98D8\u5341\u91CC" }, { key: "B", text: "\u795E\u6C14\u5341\u8DB3" }, { key: "C", text: "\u9C9C\u7EA2\u5AE9\u7EFF" }], answer: "A", explanation: "\u201C\u9999\u98D8\u5341\u91CC\u201D\u5F62\u5BB9\u9999\u6C14\u6D53\u90C1\u3001\u98D8\u5F97\u5F88\u8FDC\uFF0C\u5E38\u7528\u4E8E\u5199\u82B1\u9999\uFF1B\u53E6\u4E24\u8BCD\u5206\u522B\u5F62\u5BB9\u5F97\u610F\u795E\u6001\u4E0E\u679C\u5B9E\u8272\u6CFD\u3002" },
+          { id: "j4", ability: "\u2460", stem: "\u63CF\u5199\u5C0F\u73CD\u73E0\u9E1F\u201C\u5341\u5206\u5F97\u610F\u3001\u7CBE\u795E\u9971\u6EE1\u201D\u7684\u6837\u5B50\uFF0C\u53EF\u7528\uFF08 \uFF09", options: [{ key: "A", text: "\u9C9C\u7EA2\u5AE9\u7EFF" }, { key: "B", text: "\u795E\u6C14\u5341\u8DB3" }, { key: "C", text: "\u9999\u98D8\u5341\u91CC" }], answer: "B", explanation: "\u201C\u795E\u6C14\u5341\u8DB3\u201D\u5F62\u5BB9\u5341\u5206\u5F97\u610F\u3001\u7CBE\u795E\u9971\u6EE1\u7684\u6837\u5B50\uFF0C\u6587\u4E2D\u5199\u5C0F\u73CD\u73E0\u9E1F\u7AD9\u5728\u4E66\u67B6\u4E0A\u5544\u540D\u5B57\u5373\u6B64\u6001\u3002" }
         ]
       },
       // ===== 关卡5：课文理解（选择，自动判；修正原 c4 偏离为单元写法共识） =====
@@ -7141,11 +7494,13 @@
         name: "\u8BFE\u6587\u7406\u89E3",
         tag: "\u8BFE\u6587\u7406\u89E3",
         kind: "choice",
+        // 理解类关卡：作答前先选"预测把握度"，训练元认知（字词类纯识记不加）
+        needConfidence: true,
         items: [
-          { id: "c3", stem: "\u300A\u6842\u82B1\u96E8\u300B\u4E2D\u6BCD\u4EB2\u8BF4\u201C\u8FD9\u91CC\u7684\u6842\u82B1\u518D\u9999\uFF0C\u4E5F\u6BD4\u4E0D\u4E0A\u5BB6\u4E61\u9662\u5B50\u91CC\u7684\u6842\u82B1\u201D\uFF0C\u539F\u56E0\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u5BB6\u4E61\u7684\u6842\u82B1\u54C1\u79CD\u66F4\u597D\u3001\u66F4\u9999" }, { key: "B", text: "\u5BB6\u4E61\u7684\u6842\u82B1\u5BC4\u6258\u7740\u6BCD\u4EB2\u7684\u601D\u5FF5\u4E0E\u7AE5\u5E74\u8BB0\u5FC6" }, { key: "C", text: "\u676D\u5DDE\u7684\u6842\u82B1\u5176\u5B9E\u4E0D\u9999" }, { key: "D", text: "\u6BCD\u4EB2\u4ECE\u6765\u6CA1\u6709\u89C1\u8FC7\u676D\u5DDE\u7684\u6842\u82B1" }], answer: "B", explanation: "B \u6B63\u786E\u3002\u6BCD\u4EB2\u7684\u8BDD\u4E0D\u662F\u6BD4\u9999\u5473\uFF0C\u800C\u662F\u501F\u6842\u82B1\u5BC4\u6258\u5BF9\u6545\u4E61\u4E0E\u7AE5\u5E74\u751F\u6D3B\u7684\u6DF1\u6DF1\u601D\u5FF5\uFF0C\u4E61\u60C5\u8BA9\u5BB6\u4E61\u7684\u6842\u82B1\u66F4\u201C\u9999\u201D\u3002" },
-          { id: "c4", stem: "\u672C\u5355\u5143\u300A\u843D\u82B1\u751F\u300B\u300A\u6842\u82B1\u96E8\u300B\u300A\u73CD\u73E0\u9E1F\u300B\u4E09\u7BC7\u5728\u5199\u6CD5\u4E0A\u7684\u5171\u540C\u7279\u70B9\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u90FD\u501F\u52A9\u5177\u4F53\u4E8B\u7269\u6292\u53D1\u611F\u60C5\u6216\u8BF4\u660E\u9053\u7406\uFF08\u501F\u7269\u6292\u60C5/\u501F\u7269\u55BB\u7406\uFF09" }, { key: "B", text: "\u90FD\u662F\u7AE5\u8BDD\u6545\u4E8B" }, { key: "C", text: "\u90FD\u662F\u8BF4\u660E\u6587" }, { key: "D", text: "\u90FD\u4E3B\u8981\u5199\u52A8\u7269" }], answer: "A", explanation: "A \u6B63\u786E\u3002\u300A\u843D\u82B1\u751F\u300B\u501F\u82B1\u751F\u55BB\u7406\u3001\u300A\u6842\u82B1\u96E8\u300B\u501F\u6842\u82B1\u5BC4\u60C5\u3001\u300A\u73CD\u73E0\u9E1F\u300B\u501F\u9E1F\u5199\u201C\u4FE1\u8D56\u201D\uFF0C\u90FD\u5C5E\u501F\u7269\u6292\u60C5/\u55BB\u7406\u3002" },
-          { id: "c5", stem: "\u4E0B\u5217\u5BF9\u73CD\u73E0\u9E1F\u8BED\u6BB5\u201C\u5B83\u597D\u80A5\uFF0C\u6574\u4E2A\u8EAB\u5B50\u597D\u50CF\u4E00\u4E2A\u84EC\u677E\u7684\u7403\u201D\u7406\u89E3\u9519\u8BEF\u7684\u4E00\u9879\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u8FD9\u53E5\u8BDD\u63CF\u5199\u4E86\u5C0F\u73CD\u73E0\u9E1F\u53EF\u7231\u7684\u5916\u5F62" }, { key: "B", text: "\u201C\u591A\u4E48\u50CF\u5B83\u7684\u7236\u6BCD\u201D\u662F\u4E00\u4E2A\u6BD4\u55BB\u53E5\uFF0C\u5199\u51FA\u5C0F\u9E1F\u5916\u5F62\u4E0E\u5927\u9E1F\u5B8C\u5168\u4E00\u6837" }, { key: "C", text: "\u201C\u597D\u50CF\u4E00\u4E2A\u84EC\u677E\u7684\u7403\u201D\u8FD0\u7528\u4E86\u6BD4\u55BB" }, { key: "D", text: "\u5B57\u91CC\u884C\u95F4\u6D41\u9732\u51FA\u4F5C\u8005\u5BF9\u5C0F\u73CD\u73E0\u9E1F\u7684\u559C\u7231" }], answer: "B", explanation: "B \u9519\u8BEF\u3002\u201C\u591A\u4E48\u50CF\u5B83\u7684\u7236\u6BCD\u201D\u662F\u540C\u7C7B\u4E8B\u7269\u4E4B\u95F4\u7684\u6BD4\u8F83\uFF0C\u4E0D\u662F\u6BD4\u55BB\uFF08\u6BD4\u55BB\u8981\u6C42\u672C\u4F53\u548C\u55BB\u4F53\u4E0D\u540C\u7C7B\uFF09\uFF1B\u4E14\u539F\u6587\u8BF4\u201C\u53EA\u662F\u540E\u80CC\u8FD8\u6CA1\u751F\u51FA\u73CD\u73E0\u4F3C\u7684\u767D\u70B9\u201D\uFF0C\u5E76\u975E\u201C\u5B8C\u5168\u4E00\u6837\u201D\u3002" },
-          { id: "c6", stem: "\u4E0B\u5217\u5173\u4E8E\u8BFE\u6587\u7684\u8BF4\u6CD5\uFF0C\u6B63\u786E\u7684\u4E00\u9879\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u300A\u6842\u82B1\u96E8\u300B\u4E3B\u8981\u501F\u82B1\u751F\u8BB2\u505A\u4EBA\u7684\u9053\u7406" }, { key: "B", text: "\u300A\u843D\u82B1\u751F\u300B\u501F\u7269\u55BB\u7406\uFF0C\u544A\u8BC9\u6211\u4EEC\u8981\u505A\u6709\u7528\u7684\u4EBA\uFF0C\u4E0D\u8981\u53EA\u8BB2\u4F53\u9762" }, { key: "C", text: "\u201C\u4FE1\u8D56\uFF0C\u5F80\u5F80\u521B\u9020\u51FA\u7F8E\u597D\u7684\u5883\u754C\u201D\u662F\u5DF4\u91D1\u5728\u300A\u73CD\u73E0\u9E1F\u300B\u4E2D\u5199\u7684" }, { key: "D", text: "\u672C\u5355\u5143\u5168\u90E8\u662F\u7CBE\u8BFB\u8BFE\u6587" }], answer: "B", explanation: "A \u9519\uFF08\u300A\u6842\u82B1\u96E8\u300B\u501F\u6842\u82B1\u5BC4\u6258\u601D\u4E61\u4E0E\u7AE5\u5E74\u4E4B\u60C5\uFF09\uFF1BC \u9519\uFF08\u4F5C\u8005\u662F\u51AF\u9AA5\u624D\uFF09\uFF1BD \u9519\uFF08\u300A\u73CD\u73E0\u9E1F\u300B\u662F\u7565\u8BFB\u8BFE\u6587\uFF09\u3002B \u6B63\u786E\uFF0C\u300A\u843D\u82B1\u751F\u300B\u501F\u82B1\u751F\u6734\u5B9E\u6709\u7528\u7684\u7279\u70B9\u55BB\u7406\u3002" }
+          { id: "c3", ability: "\u2462", stem: "\u300A\u6842\u82B1\u96E8\u300B\u4E2D\u6BCD\u4EB2\u8BF4\u201C\u8FD9\u91CC\u7684\u6842\u82B1\u518D\u9999\uFF0C\u4E5F\u6BD4\u4E0D\u4E0A\u5BB6\u4E61\u9662\u5B50\u91CC\u7684\u6842\u82B1\u201D\uFF0C\u539F\u56E0\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u5BB6\u4E61\u7684\u6842\u82B1\u54C1\u79CD\u66F4\u597D\u3001\u66F4\u9999" }, { key: "B", text: "\u5BB6\u4E61\u7684\u6842\u82B1\u5BC4\u6258\u7740\u6BCD\u4EB2\u7684\u601D\u5FF5\u4E0E\u7AE5\u5E74\u8BB0\u5FC6" }, { key: "C", text: "\u676D\u5DDE\u7684\u6842\u82B1\u5176\u5B9E\u4E0D\u9999" }, { key: "D", text: "\u6BCD\u4EB2\u4ECE\u6765\u6CA1\u6709\u89C1\u8FC7\u676D\u5DDE\u7684\u6842\u82B1" }], answer: "B", explanation: "B \u6B63\u786E\u3002\u6BCD\u4EB2\u7684\u8BDD\u4E0D\u662F\u6BD4\u9999\u5473\uFF0C\u800C\u662F\u501F\u6842\u82B1\u5BC4\u6258\u5BF9\u6545\u4E61\u4E0E\u7AE5\u5E74\u751F\u6D3B\u7684\u6DF1\u6DF1\u601D\u5FF5\uFF0C\u4E61\u60C5\u8BA9\u5BB6\u4E61\u7684\u6842\u82B1\u66F4\u201C\u9999\u201D\u3002" },
+          { id: "c4", ability: "\u2461", stem: "\u672C\u5355\u5143\u300A\u843D\u82B1\u751F\u300B\u300A\u6842\u82B1\u96E8\u300B\u300A\u73CD\u73E0\u9E1F\u300B\u4E09\u7BC7\u5728\u5199\u6CD5\u4E0A\u7684\u5171\u540C\u7279\u70B9\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u90FD\u501F\u52A9\u5177\u4F53\u4E8B\u7269\u6292\u53D1\u611F\u60C5\u6216\u8BF4\u660E\u9053\u7406\uFF08\u501F\u7269\u6292\u60C5/\u501F\u7269\u55BB\u7406\uFF09" }, { key: "B", text: "\u90FD\u662F\u7AE5\u8BDD\u6545\u4E8B" }, { key: "C", text: "\u90FD\u662F\u8BF4\u660E\u6587" }, { key: "D", text: "\u90FD\u4E3B\u8981\u5199\u52A8\u7269" }], answer: "A", explanation: "A \u6B63\u786E\u3002\u300A\u843D\u82B1\u751F\u300B\u501F\u82B1\u751F\u55BB\u7406\u3001\u300A\u6842\u82B1\u96E8\u300B\u501F\u6842\u82B1\u5BC4\u60C5\u3001\u300A\u73CD\u73E0\u9E1F\u300B\u501F\u9E1F\u5199\u201C\u4FE1\u8D56\u201D\uFF0C\u90FD\u5C5E\u501F\u7269\u6292\u60C5/\u55BB\u7406\u3002" },
+          { id: "c5", ability: "\u2463", stem: "\u4E0B\u5217\u5BF9\u73CD\u73E0\u9E1F\u8BED\u6BB5\u201C\u5B83\u597D\u80A5\uFF0C\u6574\u4E2A\u8EAB\u5B50\u597D\u50CF\u4E00\u4E2A\u84EC\u677E\u7684\u7403\u201D\u7406\u89E3\u9519\u8BEF\u7684\u4E00\u9879\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u8FD9\u53E5\u8BDD\u63CF\u5199\u4E86\u5C0F\u73CD\u73E0\u9E1F\u53EF\u7231\u7684\u5916\u5F62" }, { key: "B", text: "\u201C\u591A\u4E48\u50CF\u5B83\u7684\u7236\u6BCD\u201D\u662F\u4E00\u4E2A\u6BD4\u55BB\u53E5\uFF0C\u5199\u51FA\u5C0F\u9E1F\u5916\u5F62\u4E0E\u5927\u9E1F\u5B8C\u5168\u4E00\u6837" }, { key: "C", text: "\u201C\u597D\u50CF\u4E00\u4E2A\u84EC\u677E\u7684\u7403\u201D\u8FD0\u7528\u4E86\u6BD4\u55BB" }, { key: "D", text: "\u5B57\u91CC\u884C\u95F4\u6D41\u9732\u51FA\u4F5C\u8005\u5BF9\u5C0F\u73CD\u73E0\u9E1F\u7684\u559C\u7231" }], answer: "B", explanation: "B \u9519\u8BEF\u3002\u201C\u591A\u4E48\u50CF\u5B83\u7684\u7236\u6BCD\u201D\u662F\u540C\u7C7B\u4E8B\u7269\u4E4B\u95F4\u7684\u6BD4\u8F83\uFF0C\u4E0D\u662F\u6BD4\u55BB\uFF08\u6BD4\u55BB\u8981\u6C42\u672C\u4F53\u548C\u55BB\u4F53\u4E0D\u540C\u7C7B\uFF09\uFF1B\u4E14\u539F\u6587\u8BF4\u201C\u53EA\u662F\u540E\u80CC\u8FD8\u6CA1\u751F\u51FA\u73CD\u73E0\u4F3C\u7684\u767D\u70B9\u201D\uFF0C\u5E76\u975E\u201C\u5B8C\u5168\u4E00\u6837\u201D\u3002" },
+          { id: "c6", ability: "\u2463", stem: "\u4E0B\u5217\u5173\u4E8E\u8BFE\u6587\u7684\u8BF4\u6CD5\uFF0C\u6B63\u786E\u7684\u4E00\u9879\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u300A\u6842\u82B1\u96E8\u300B\u4E3B\u8981\u501F\u82B1\u751F\u8BB2\u505A\u4EBA\u7684\u9053\u7406" }, { key: "B", text: "\u300A\u843D\u82B1\u751F\u300B\u501F\u7269\u55BB\u7406\uFF0C\u544A\u8BC9\u6211\u4EEC\u8981\u505A\u6709\u7528\u7684\u4EBA\uFF0C\u4E0D\u8981\u53EA\u8BB2\u4F53\u9762" }, { key: "C", text: "\u201C\u4FE1\u8D56\uFF0C\u5F80\u5F80\u521B\u9020\u51FA\u7F8E\u597D\u7684\u5883\u754C\u201D\u662F\u5DF4\u91D1\u5728\u300A\u73CD\u73E0\u9E1F\u300B\u4E2D\u5199\u7684" }, { key: "D", text: "\u672C\u5355\u5143\u5168\u90E8\u662F\u7CBE\u8BFB\u8BFE\u6587" }], answer: "B", explanation: "A \u9519\uFF08\u300A\u6842\u82B1\u96E8\u300B\u501F\u6842\u82B1\u5BC4\u6258\u601D\u4E61\u4E0E\u7AE5\u5E74\u4E4B\u60C5\uFF09\uFF1BC \u9519\uFF08\u4F5C\u8005\u662F\u51AF\u9AA5\u624D\uFF09\uFF1BD \u9519\uFF08\u300A\u73CD\u73E0\u9E1F\u300B\u662F\u7565\u8BFB\u8BFE\u6587\uFF09\u3002B \u6B63\u786E\uFF0C\u300A\u843D\u82B1\u751F\u300B\u501F\u82B1\u751F\u6734\u5B9E\u6709\u7528\u7684\u7279\u70B9\u55BB\u7406\u3002" }
         ]
       },
       // ===== 关卡6：阅读方法（对比/比喻/结构识别，取自课外阅读，自动判） =====
@@ -7154,10 +7509,11 @@
         name: "\u9605\u8BFB\u65B9\u6CD5",
         tag: "\u9605\u8BFB\u65B9\u6CD5",
         kind: "choice",
+        needConfidence: true,
         items: [
-          { id: "o3", stem: "\u300A\u7D2B\u7F57\u5170\u300B\u4E00\u6587\u7684\u7ED3\u6784\u65B9\u5F0F\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u603B\u2014\u5206\u2014\u603B" }, { key: "B", text: "\u603B\u2014\u5206" }, { key: "C", text: "\u5206\u2014\u603B" }], answer: "A", explanation: "\u5F00\u5934\u603B\u5199\u8D5E\u7F8E\u7D2B\u7F57\u5170\u7684\u989C\u8272\u3001\u59FF\u6001\u3001\u751F\u547D\u529B\uFF0C\u4E2D\u95F4\u5206\u5199\u53F6\u5B50\u3001\u82B1\u3001\u751F\u547D\u529B\uFF0C\u7ED3\u5C3E\u518D\u603B\u5199\u8D5E\u7F8E\uFF0C\u5C5E\u603B\u2014\u5206\u2014\u603B\u7ED3\u6784\u3002" },
-          { id: "m1", stem: "\u300A\u7D2B\u7F57\u5170\u300B\u5199\u82B1\u201C\u597D\u50CF\u5D4C\u5728\u7CBE\u81F4\u7684\u7D2B\u8272\u5C0F\u8239\u91CC\u7684\u7EA2\u7389\u77F3\u201D\uFF0C\u8FD0\u7528\u7684\u5199\u6CD5\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u6BD4\u55BB\uFF0C\u751F\u52A8\u5199\u51FA\u82B1\u7684\u5C0F\u5DE7\u7CBE\u81F4" }, { key: "B", text: "\u5938\u5F20\uFF0C\u5938\u5927\u82B1\u7684\u5927\u5C0F" }, { key: "C", text: "\u6392\u6BD4\uFF0C\u589E\u5F3A\u8BED\u52BF" }], answer: "A", explanation: "\u628A\u7D2B\u7F57\u5170\u7684\u82B1\u6BD4\u4F5C\u201C\u7EA2\u7389\u77F3\u201D\uFF0C\u662F\u6BD4\u55BB\uFF0C\u751F\u52A8\u5F62\u8C61\u5730\u5199\u51FA\u82B1\u7684\u6DE1\u7EA2\u3001\u5C0F\u5DE7\u3001\u7CBE\u81F4\u53EF\u7231\u3002" },
-          { id: "m2", stem: "\u672C\u5355\u5143\u300A\u843D\u82B1\u751F\u300B\u7528\u6843\u5B50\u77F3\u69B4\u82F9\u679C\u53CD\u886C\u82B1\u751F\uFF0C\u300A\u7D2B\u7F57\u5170\u300B\u4E5F\u7528\u4E86\u7C7B\u4F3C\u5199\u6CD5\uFF0C\u8FD9\u79CD\u5199\u6CD5\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u5BF9\u6BD4\uFF0C\u7528\u522B\u7684\u4E8B\u7269\u53CD\u886C\u6240\u5199\u4E8B\u7269\u7684\u7279\u70B9" }, { key: "B", text: "\u62DF\u4EBA\uFF0C\u628A\u7269\u5F53\u4EBA\u5199" }, { key: "C", text: "\u8BBE\u95EE\uFF0C\u81EA\u95EE\u81EA\u7B54" }], answer: "A", explanation: "\u7528\u6843\u5B50\u3001\u77F3\u69B4\u3001\u82F9\u679C\u201C\u9AD8\u6302\u679D\u5934\u201D\u53CD\u886C\u82B1\u751F\u201C\u57CB\u5728\u5730\u91CC\u201D\uFF0C\u662F\u5BF9\u6BD4\u5199\u6CD5\uFF0C\u4F7F\u7279\u70B9\u66F4\u9C9C\u660E\u3001\u60C5\u611F\u66F4\u7A81\u51FA\uFF0C\u547C\u5E94\u8BED\u6587\u56ED\u5730\u201C\u8BCD\u53E5\u6BB5\u8FD0\u7528\u201D\u3002" }
+          { id: "o3", ability: "\u2461", stem: "\u300A\u7D2B\u7F57\u5170\u300B\u4E00\u6587\u7684\u7ED3\u6784\u65B9\u5F0F\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u603B\u2014\u5206\u2014\u603B" }, { key: "B", text: "\u603B\u2014\u5206" }, { key: "C", text: "\u5206\u2014\u603B" }], answer: "A", explanation: "\u5F00\u5934\u603B\u5199\u8D5E\u7F8E\u7D2B\u7F57\u5170\u7684\u989C\u8272\u3001\u59FF\u6001\u3001\u751F\u547D\u529B\uFF0C\u4E2D\u95F4\u5206\u5199\u53F6\u5B50\u3001\u82B1\u3001\u751F\u547D\u529B\uFF0C\u7ED3\u5C3E\u518D\u603B\u5199\u8D5E\u7F8E\uFF0C\u5C5E\u603B\u2014\u5206\u2014\u603B\u7ED3\u6784\u3002" },
+          { id: "m1", ability: "\u2461", stem: "\u300A\u7D2B\u7F57\u5170\u300B\u5199\u82B1\u201C\u597D\u50CF\u5D4C\u5728\u7CBE\u81F4\u7684\u7D2B\u8272\u5C0F\u8239\u91CC\u7684\u7EA2\u7389\u77F3\u201D\uFF0C\u8FD0\u7528\u7684\u5199\u6CD5\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u6BD4\u55BB\uFF0C\u751F\u52A8\u5199\u51FA\u82B1\u7684\u5C0F\u5DE7\u7CBE\u81F4" }, { key: "B", text: "\u5938\u5F20\uFF0C\u5938\u5927\u82B1\u7684\u5927\u5C0F" }, { key: "C", text: "\u6392\u6BD4\uFF0C\u589E\u5F3A\u8BED\u52BF" }], answer: "A", explanation: "\u628A\u7D2B\u7F57\u5170\u7684\u82B1\u6BD4\u4F5C\u201C\u7EA2\u7389\u77F3\u201D\uFF0C\u662F\u6BD4\u55BB\uFF0C\u751F\u52A8\u5F62\u8C61\u5730\u5199\u51FA\u82B1\u7684\u6DE1\u7EA2\u3001\u5C0F\u5DE7\u3001\u7CBE\u81F4\u53EF\u7231\u3002" },
+          { id: "m2", ability: "\u2463", stem: "\u672C\u5355\u5143\u300A\u843D\u82B1\u751F\u300B\u7528\u6843\u5B50\u77F3\u69B4\u82F9\u679C\u53CD\u886C\u82B1\u751F\uFF0C\u300A\u7D2B\u7F57\u5170\u300B\u4E5F\u7528\u4E86\u7C7B\u4F3C\u5199\u6CD5\uFF0C\u8FD9\u79CD\u5199\u6CD5\u662F\uFF08 \uFF09", options: [{ key: "A", text: "\u5BF9\u6BD4\uFF0C\u7528\u522B\u7684\u4E8B\u7269\u53CD\u886C\u6240\u5199\u4E8B\u7269\u7684\u7279\u70B9" }, { key: "B", text: "\u62DF\u4EBA\uFF0C\u628A\u7269\u5F53\u4EBA\u5199" }, { key: "C", text: "\u8BBE\u95EE\uFF0C\u81EA\u95EE\u81EA\u7B54" }], answer: "A", explanation: "\u7528\u6843\u5B50\u3001\u77F3\u69B4\u3001\u82F9\u679C\u201C\u9AD8\u6302\u679D\u5934\u201D\u53CD\u886C\u82B1\u751F\u201C\u57CB\u5728\u5730\u91CC\u201D\uFF0C\u662F\u5BF9\u6BD4\u5199\u6CD5\uFF0C\u4F7F\u7279\u70B9\u66F4\u9C9C\u660E\u3001\u60C5\u611F\u66F4\u7A81\u51FA\uFF0C\u547C\u5E94\u8BED\u6587\u56ED\u5730\u201C\u8BCD\u53E5\u6BB5\u8FD0\u7528\u201D\u3002" }
         ]
       },
       // ===== 关卡7：习作（引用独立习作学习块，先学习再考试；需家长判） =====
@@ -7347,6 +7703,7 @@
             choice: [
               {
                 id: "r1_s1_c1",
+                ability: "\u2460",
                 level: "L1",
                 skill: "\u4FE1\u606F\u63D0\u53D6",
                 stem: "\u4F5C\u8005\u5C0F\u65F6\u5019\u6700\u559C\u6B22\u54EA\u79CD\u82B1\uFF1F",
@@ -7361,6 +7718,7 @@
               },
               {
                 id: "r1_s1_c2",
+                ability: "\u2461",
                 level: "L2",
                 skill: "\u5199\u6CD5\u7406\u89E3",
                 stem: '\u4F5C\u8005\u5199\u6842\u82B1\u6811"\u6837\u5B50\u7B28\u7B28\u7684\uFF0C\u4E0D\u50CF\u6885\u6811\u90A3\u6837\u6709\u59FF\u6001"\uFF0C\u8FD9\u6837\u5199\u662F\u4E3A\u4E86\uFF08 \uFF09',
@@ -7377,6 +7735,7 @@
             discriminate: [
               {
                 id: "r1_s1_d1",
+                ability: "\u2463",
                 level: "L2",
                 skill: "\u5206\u8FA8\u601D\u7EF4",
                 stem: "\u4E0B\u5217\u8BF4\u6CD5\u6700\u51C6\u786E\u7684\u4E00\u9879\u662F\uFF08 \uFF09",
@@ -7393,6 +7752,7 @@
             expression: [
               {
                 id: "r1_s1_e1",
+                ability: "\u2464",
                 level: "L3",
                 prompt: "\u4F60\u6700\u559C\u6B22\u54EA\u79CD\u82B1\u7684\u9999\u5473\uFF1F\u5B83\u8BA9\u4F60\u60F3\u8D77\u4EC0\u4E48\u4EBA\u6216\u4EC0\u4E48\u4E8B\uFF1F\u7528\u4E00\u4E24\u53E5\u8BDD\u8BF4\u8BF4\u3002",
                 modelAnswer: "\u793A\u4F8B\uFF1A\u6211\u559C\u6B22\u8309\u8389\u82B1\u7684\u6E05\u9999\uFF0C\u6BCF\u6B21\u95FB\u5230\u5C31\u60F3\u8D77\u590F\u5929\u5916\u5A46\u7684\u9662\u5B50\uFF0C\u5979\u603B\u5728\u508D\u665A\u4E58\u51C9\u3002",
@@ -7404,6 +7764,7 @@
             choice: [
               {
                 id: "r1_s3_c1",
+                ability: "\u2460",
                 level: "L1",
                 skill: "\u8BCD\u53E5\u7406\u89E3",
                 stem: '"\u6842\u82B1\u76DB\u5F00\u7684\u65F6\u5019\u2026\u2026\u6CA1\u6709\u4E0D\u6D78\u5728\u6842\u82B1\u9999\u91CC\u7684"\u4E2D"\u6D78"\u5B57\u7684\u610F\u601D\u662F\uFF08 \uFF09',
@@ -7418,6 +7779,7 @@
               },
               {
                 id: "r1_s3_c2",
+                ability: "\u2463",
                 level: "L2",
                 skill: "\u8BCD\u53E5\u8D4F\u6790",
                 stem: '"\u6D78"\u5B57\u7528\u5F97\u597D\uFF0C\u4E3B\u8981\u662F\u56E0\u4E3A\uFF08 \uFF09',
@@ -7434,6 +7796,7 @@
             discriminate: [
               {
                 id: "r1_s3_d1",
+                ability: "\u2463",
                 level: "L2",
                 skill: "\u5206\u8FA8\u601D\u7EF4",
                 stem: '"\u9999\u98D8\u5341\u91CC"\u548C"\u6D78\u5728\u9999\u91CC"\u90FD\u5199\u9999\uFF0C\u4E0B\u9762\u7406\u89E3\u6B63\u786E\u7684\u662F\uFF08 \uFF09',
@@ -7453,6 +7816,7 @@
             choice: [
               {
                 id: "r1_s5_c1",
+                ability: "\u2462",
                 level: "L1",
                 skill: "\u5185\u5BB9\u7406\u89E3",
                 stem: '\u6BCD\u4EB2\u4E3A\u4EC0\u4E48\u8BF4"\u8FD9\u91CC\u7684\u6842\u82B1\u518D\u9999\uFF0C\u4E5F\u6BD4\u4E0D\u4E0A\u5BB6\u4E61\u9662\u5B50\u91CC\u7684\u6842\u82B1"\uFF1F',
@@ -7467,6 +7831,7 @@
               },
               {
                 id: "r1_s5_c2",
+                ability: "\u2461",
                 level: "L2",
                 skill: "\u624B\u6CD5\u7406\u89E3",
                 stem: '\u676D\u5DDE\u6EE1\u5C71\u6842\u82B1"\u9999\u98D8\u5341\u91CC"\u5374\u6BD4\u4E0D\u4E0A\u5BB6\u4E61\uFF0C\u4F5C\u8005\u8FD9\u6837\u5199\u662F\u4E3A\u4E86\uFF08 \uFF09',
@@ -7483,6 +7848,7 @@
             discriminate: [
               {
                 id: "r1_s5_d1",
+                ability: "\u2463",
                 level: "L3",
                 skill: "\u5206\u8FA8\u601D\u7EF4",
                 stem: '\u5BF9\u6587\u7AE0\u4E24\u6B21\u5199"\u6574\u4E2A\u6751\u5B50\u90FD\u6D78\u5728\u6842\u82B1\u7684\u9999\u6C14\u91CC"\uFF0C\u5224\u65AD\u6B63\u8BEF\uFF1A\u8FD9\u6837\u5199\u5C5E\u4E8E\u524D\u540E\u547C\u5E94\uFF0C\u80FD\u7A81\u51FA\u4E61\u60C5\u6D53\u90C1\u3002',
@@ -7497,6 +7863,7 @@
             expression: [
               {
                 id: "r1_s5_e1",
+                ability: "\u2464",
                 level: "L3",
                 prompt: '\u4F60\u6709\u6CA1\u6709\u4E00\u6837"\u4E00\u60F3\u8D77\u6765\u5C31\u6E29\u6696"\u7684\u6545\u4E61\u98CE\u7269\uFF1F\u7528\u4E00\u4E24\u53E5\u8BDD\u5199\u4E0B\u6765\uFF08\u53EF\u4EE5\u8BED\u97F3\u8BF4\uFF09\u3002',
                 modelAnswer: "\u793A\u4F8B\uFF1A\u6211\u60F3\u8D77\u5916\u5A46\u5BB6\u5C4B\u540E\u7684\u90A3\u7247\u7AF9\u6797\uFF0C\u98CE\u4E00\u5439\u5C31\u50CF\u5728\u5531\u6B4C\uFF0C\u90A3\u662F\u7AE5\u5E74\u6700\u5B89\u5FC3\u7684\u58F0\u97F3\u3002",
@@ -7513,6 +7880,7 @@
             choice: [
               {
                 id: "r2_s1_c1",
+                ability: "\u2460",
                 level: "L1",
                 skill: "\u4FE1\u606F\u63D0\u53D6",
                 stem: "\u6211\u4EEC\u79CD\u82B1\u751F\u6309\u8BFE\u6587\u987A\u5E8F\u7ECF\u5386\u4E86\u54EA\u4E9B\u6B65\u9AA4\uFF1F",
@@ -7527,6 +7895,7 @@
               },
               {
                 id: "r2_s1_c2",
+                ability: "\u2462",
                 level: "L2",
                 skill: "\u8BCD\u8BED\u7406\u89E3",
                 stem: '"\u5C45\u7136\u6536\u83B7\u4E86"\u4E2D\u7684"\u5C45\u7136"\u8868\u8FBE\u4E86\uFF08 \uFF09',
@@ -7543,6 +7912,7 @@
             discriminate: [
               {
                 id: "r2_s1_d1",
+                ability: "\u2463",
                 level: "L2",
                 skill: "\u5206\u8FA8\u601D\u7EF4",
                 stem: "\u4E0B\u9762\u7406\u89E3\u6700\u6070\u5F53\u7684\u662F\uFF08 \uFF09",
@@ -7562,6 +7932,7 @@
             choice: [
               {
                 id: "r2_s4_c1",
+                ability: "\u2461",
                 level: "L1",
                 skill: "\u5185\u5BB9\u7406\u89E3",
                 stem: '\u7236\u4EB2\u8BA4\u4E3A\u82B1\u751F"\u6700\u53EF\u8D35"\u7684\u4E00\u70B9\u662F\u4EC0\u4E48\uFF1F',
@@ -7576,6 +7947,7 @@
               },
               {
                 id: "r2_s4_c2",
+                ability: "\u2461",
                 level: "L2",
                 skill: "\u5199\u6CD5\u7406\u89E3",
                 stem: "\u7236\u4EB2\u628A\u82B1\u751F\u548C\u6843\u5B50\u3001\u77F3\u69B4\u3001\u82F9\u679C\u6BD4\u8F83\uFF0C\u7528\u4E86\u4EC0\u4E48\u5199\u6CD5\uFF1F\u7A81\u51FA\u4EC0\u4E48\uFF1F",
@@ -7592,6 +7964,7 @@
             discriminate: [
               {
                 id: "r2_s4_d1",
+                ability: "\u2463",
                 level: "L3",
                 skill: "\u5206\u8FA8\u601D\u7EF4",
                 stem: '\u5224\u65AD\uFF1A\u7236\u4EB2\u8D5E\u82B1\u751F"\u4E0D\u597D\u770B\u5374\u6709\u7528"\uFF0C\u610F\u601D\u662F\u5916\u8868\u7F8E\u7684\u4EBA\u5C31\u4E00\u5B9A\u6CA1\u7528\u3002',
@@ -7606,6 +7979,7 @@
             expression: [
               {
                 id: "r2_s4_e1",
+                ability: "\u2464",
                 level: "L3",
                 prompt: '\u5728\u4F60\u8EAB\u8FB9\uFF0C\u6709\u6CA1\u6709\u50CF\u82B1\u751F\u4E00\u6837"\u4E0D\u597D\u770B\u5374\u5F88\u6709\u7528"\u7684\u4EBA\uFF1F\u4E3E\u4F8B\u8BF4\u8BF4\uFF08\u53EF\u4EE5\u8BED\u97F3\u8BF4\uFF09\u3002',
                 modelAnswer: "\u793A\u4F8B\uFF1A\u6E05\u6668\u626B\u5730\u7684\u73AF\u536B\u5DE5\u4EBA\uFF0C\u5DE5\u4F5C\u5E73\u51E1\u4E0D\u663E\u773C\uFF0C\u5374\u8BA9\u6211\u4EEC\u7684\u57CE\u5E02\u5E72\u51C0\u4FBF\u5229\uFF0C\u662F\u6709\u7528\u7684\u4EBA\u3002",
@@ -7617,6 +7991,7 @@
             choice: [
               {
                 id: "r2_s5_c1",
+                ability: "\u2461",
                 level: "L1",
                 skill: "\u5185\u5BB9\u7406\u89E3",
                 stem: '"\u6211"\u4ECE\u82B1\u751F\u609F\u51FA\u7684\u505A\u4EBA\u9053\u7406\u662F\uFF08 \uFF09',
@@ -7631,6 +8006,7 @@
               },
               {
                 id: "r2_s5_c2",
+                ability: "\u2463",
                 level: "L2",
                 skill: "\u8BCD\u8BED\u8D4F\u6790",
                 stem: '"\u7236\u4EB2\u7684\u8BDD\u5374\u6DF1\u6DF1\u5730\u5370\u5728\u6211\u7684\u5FC3\u4E0A"\u4E2D"\u5370"\u5B57\u80FD\u4E0D\u80FD\u6362\u6210"\u7559"\uFF1F',
@@ -7656,6 +8032,7 @@
             choice: [
               {
                 id: "r3_s1_c1",
+                ability: "\u2460",
                 level: "L1",
                 skill: "\u4FE1\u606F\u63D0\u53D6",
                 stem: "\u4F5C\u8005\u600E\u6837\u5E03\u7F6E\u9E1F\u7B3C\u8BA9\u5C0F\u9E1F\u6709\u5B89\u5168\u611F\uFF1F",
@@ -7670,6 +8047,7 @@
               },
               {
                 id: "r3_s1_c2",
+                ability: "\u2461",
                 level: "L2",
                 skill: "\u4FEE\u8F9E\u7406\u89E3",
                 stem: '"\u7B1B\u513F\u822C\u53C8\u7EC6\u53C8\u4EAE\u7684\u53EB\u58F0"\u8FD0\u7528\u4E86\u4EC0\u4E48\u4FEE\u8F9E\uFF1F',
@@ -7686,6 +8064,7 @@
             discriminate: [
               {
                 id: "r3_s1_d1",
+                ability: "\u2463",
                 level: "L2",
                 skill: "\u5206\u8FA8\u601D\u7EF4",
                 stem: "\u4E0B\u5217\u8BF4\u6CD5\u51C6\u786E\u7684\u662F\uFF08 \uFF09",
@@ -7705,6 +8084,7 @@
             choice: [
               {
                 id: "r3_s3_c1",
+                ability: "\u2460",
                 level: "L1",
                 skill: "\u5185\u5BB9\u7406\u89E3",
                 stem: "\u5C0F\u73CD\u73E0\u9E1F\u7684\u5916\u5F62\u88AB\u6BD4\u4F5C\uFF08 \uFF09",
@@ -7719,6 +8099,7 @@
               },
               {
                 id: "r3_s3_c2",
+                ability: "\u2461",
                 level: "L2",
                 skill: "\u8BCD\u53E5\u7406\u89E3",
                 stem: '"\u795E\u6C14\u5341\u8DB3\u5730\u7AD9\u5728\u4E66\u67B6\u4E0A"\u5199\u51FA\u5C0F\u73CD\u73E0\u9E1F\uFF08 \uFF09',
@@ -7735,6 +8116,7 @@
             discriminate: [
               {
                 id: "r3_s3_d1",
+                ability: "\u2463",
                 level: "L3",
                 skill: "\u5206\u8FA8\u601D\u7EF4",
                 stem: '\u5224\u65AD\uFF1A\u5C0F\u9E1F\u5728\u5C4B\u91CC\u4E71\u98DE\uFF0C\u8BF4\u660E\u5B83\u5DF2\u7ECF\u5B8C\u5168\u4E0D\u5BB3\u6015"\u6211"\u4E86\u3002',
@@ -7752,6 +8134,7 @@
             choice: [
               {
                 id: "r3_s6_c1",
+                ability: "\u2460",
                 level: "L1",
                 skill: "\u5185\u5BB9\u7406\u89E3",
                 stem: "\u6587\u7AE0\u7ED3\u5C3E\uFF0C\u4F5C\u8005\u5199\u51FA\u7684\u4E00\u65F6\u611F\u53D7\u662F\uFF08 \uFF09",
@@ -7766,6 +8149,7 @@
               },
               {
                 id: "r3_s6_c2",
+                ability: "\u2462",
                 level: "L2",
                 skill: "\u8BCD\u8BED\u7406\u89E3",
                 stem: '"\u5C45\u7136""\u7ADF"\u5728\u5199\u5C0F\u9E1F\u843D\u5230\u80A9\u4E0A\u7761\u7740\u65F6\uFF0C\u8868\u73B0\u4E86\u4F5C\u8005\uFF08 \uFF09',
@@ -7783,6 +8167,7 @@
             expression: [
               {
                 id: "r3_s6_e1",
+                ability: "\u2464",
                 level: "L3",
                 prompt: '\u7ED3\u5408\u5168\u6587\uFF0C\u8BF4\u8BF4\u4F60\u5BF9"\u4FE1\u8D56\uFF0C\u5F80\u5F80\u521B\u9020\u51FA\u7F8E\u597D\u7684\u5883\u754C"\u7684\u7406\u89E3\uFF08\u53EF\u4EE5\u8BED\u97F3\u8BF4\uFF09\u3002',
                 modelAnswer: "\u793A\u4F8B\uFF1A\u4F5C\u8005\u4E0D\u60CA\u6270\u73CD\u73E0\u9E1F\uFF0C\u6362\u6765\u5C0F\u9E1F\u5B8C\u5168\u4FE1\u4EFB\uFF0C\u51FA\u73B0\u4EBA\u9E1F\u76F8\u4EB2\u7684\u753B\u9762\u3002\u8BF4\u660E\u5F7C\u6B64\u5C0A\u91CD\u4FE1\u4EFB\uFF0C\u4EBA\u4E0E\u52A8\u7269\u3001\u4EBA\u4E0E\u4EBA\u4E4B\u95F4\u90FD\u80FD\u521B\u9020\u6E29\u6696\u7F8E\u597D\u7684\u5883\u754C\u3002",
@@ -7899,9 +8284,18 @@
         <div class="row" style="margin-top:8px">
           <button class="btn primary" data-action="go-lesson" data-lesson="${continueLink.lessonId}">${esc(continueLink.label)} \u2192</button>
         </div></div>` : "";
-    const planHtml = todayPlan.length ? `<div class="card"><h3>\u{1F4C5} \u4ECA\u65E5\u8BA1\u5212</h3><div class="today-list">${todayPlan.map(
-      (p) => `<div class="today-item"><button class="btn sm ${p.primary ? "primary" : ""}" data-action="${p.action}" ${p.unit ? `data-unit="${p.unit}"` : ""} ${p.lesson ? `data-lesson="${p.lesson}"` : ""} ${p.wp ? `data-wp="${p.wp}"` : ""}>${esc(p.text)}</button></div>`
-    ).join("")}</div></div>` : "";
+    const planHtml = todayPlan.length ? `<div class="card"><h3>\u{1F4C5} \u4ECA\u65E5\u8BA1\u5212</h3><div class="today-list">${todayPlan.map((p) => {
+      if (p.kind === "spaced") {
+        return `<div class="today-item spaced-item">
+            <div class="spaced-q">\u{1F501} <b>\u7B2C ${p.stage + 1} \u8F6E\u590D\u4E60\uFF1A</b>${esc(p.text)}</div>
+            <div class="row" style="margin-top:6px">
+              <button class="btn sm" data-action="spaced-hit" data-id="${esc(p.id)}">\u2705 \u60F3\u8D77\u6765\u4E86</button>
+              <button class="btn sm" data-action="spaced-miss" data-id="${esc(p.id)}">\u274C \u5FD8\u4E86</button>
+            </div>
+          </div>`;
+      }
+      return `<div class="today-item"><button class="btn sm ${p.primary ? "primary" : ""}" data-action="${p.action}" ${p.unit ? `data-unit="${p.unit}"` : ""} ${p.lesson ? `data-lesson="${p.lesson}"` : ""} ${p.wp ? `data-wp="${p.wp}"` : ""} ${p.id ? `data-id="${p.id}"` : ""}>${esc(p.text)}</button></div>`;
+    }).join("")}</div></div>` : "";
     const dataHtml = `<div class="card"><h3>\u{1F6E1} \u6211\u7684\u6570\u636E</h3>
     <div class="muted">\u5B66\u4E60\u6570\u636E\u4FDD\u5B58\u5728\u672C\u673A\uFF08IndexedDB\uFF09\uFF0C\u53EF\u5BFC\u51FA\u5907\u4EFD\u3001\u5BFC\u5165\u6062\u590D\u3002\u5EFA\u8BAE\u5B9A\u671F\u5907\u4EFD\u3002</div>
     <div class="row" style="margin-top:8px">
@@ -7918,7 +8312,7 @@
     <div class="grid">${tiles}</div>
     ${dataHtml}`;
   }
-  function renderUnit({ unitId, progressMap, accumStages, accumQuiz = {}, accumExamples = {}, bcDone = false, reviewReady = false, gates = {}, compositionLearned = false, gardenLearned = false }) {
+  function renderUnit({ unitId, progressMap, accumStages, accumQuiz = {}, accumExamples = {}, bcDone = false, reviewReady = false, gates = {}, compositionLearned = false, gardenLearned = false, ability = null }) {
     const unit9 = getUnit(textbook, unitId);
     if (!unit9) return `<div class="warn">\u5355\u5143\u4E0D\u5B58\u5728</div>`;
     const lessons = listLessons(textbook, unitId);
@@ -7989,9 +8383,28 @@
     ${gatePendingHtml(gates.review)}
     <div class="section">\u7B2C\u4E03\u5173 \xB7 \u5355\u5143\u8D44\u6E90</div>
     ${res.join("")}
+    <div class="section">\u{1F9ED} \u6211\u7684\u9519\u89C9\u5730\u56FE\uFF08\u5143\u8BA4\u77E5\uFF09</div>
+    ${ability ? renderAbilityCard(ability) : ""}
+    <div class="card">
+      <div class="muted">\u4F1A\u505A\u7684\u9898\u4E0D\u7A00\u5947\uFF0C<b>\u77E5\u9053\u81EA\u5DF1\u54EA\u91CC\u4E0D\u4F1A</b>\u624D\u662F\u771F\u672C\u4E8B\u3002\u8FD9\u91CC\u6C47\u603B\u4F60\u5728\u7CBE\u8BFB\u4E0E\u8003\u70B9\u91CC"\u4EE5\u4E3A\u4F1A\u5176\u5B9E\u9519\u4E86"\u7684\u9898\u3002</div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn sm" data-action="go-illusion" data-unit="${unitId}">\u{1F9ED} \u67E5\u770B\u6211\u7684\u9519\u89C9\u5730\u56FE \u2192</button>
+      </div>
+    </div>
     <div class="row" style="margin-top:14px"><button class="btn" data-action="go-home">\u2190 \u8FD4\u56DE\u5168\u4E66</button></div>`;
   }
-  function renderComposition({ unitId, composition: composition2, learned = false }) {
+  function renderComposition({ unitId, composition: composition2, learned = false, scaffold = null }) {
+    const scState = scaffold || { level: "S3", streak: 0 };
+    const sc = scaffoldLevelOf(scState.level);
+    const vis = scaffoldVisible(scState.level);
+    const scaffoldCard = `<div class="card cp-scaffold">
+    <h3>\u{1FA9C} \u4F60\u73B0\u5728\u7684\u652F\u67B6\uFF1A${esc(sc.name)}</h3>
+    <div class="muted">${esc(sc.desc)}</div>
+    <div class="muted">\u8FDE\u7EED\u5199\u6EE1 500 \u5B57 ${SCAFFOLD_TARGET_STREAK} \u6B21\uFF0C\u652F\u67B6\u4F1A\u81EA\u52A8<b>\u64A4\u6389\u4E00\u5C42</b>\u2014\u2014\u90A3\u4E0D\u662F\u53D8\u96BE\uFF0C\u662F\u4F60\u8FDB\u6B65\u4E86\u3002</div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn sm" data-action="scaffold-help" data-unit="${unitId}">\u{1F198} \u6211\u9700\u8981\u5E2E\u52A9\uFF08\u653E\u56DE\u652F\u67B6\uFF09</button>
+    </div>
+  </div>`;
     const fw = (composition2.framework || []).map(
       (f) => `<div class="cp-step"><span class="cp-step-no">${f.step}</span><div class="cp-step-body"><b>${esc(f.name)}</b><div class="muted">${esc(f.tip)}</div></div></div>`
     ).join("");
@@ -8019,15 +8432,15 @@
       <div class="cp-idea-q"><b>\u95EE\u9898 ${i + 1}\uFF1A</b>${esc(p.q)}</div>
       <div class="cp-chips">${(p.options || []).map((o) => `<span class="cp-chip">${esc(o)}</span>`).join("")}</div>
     </div>`).join("");
-    const ideaHtml = idea ? `<div class="card"><h3>\u{1F9E9} \u601D\u8DEF\u751F\u6210\u5668\uFF08\u5148\u60F3\u6E05\u695A\u518D\u52A8\u7B14\uFF09</h3><div class="muted" style="margin-bottom:8px">\u6BCF\u4E00\u6B65\u90FD\u662F\u201C\u9009\u4E00\u9009\u201D\uFF0C\u4E0D\u7528\u81EA\u5DF1\u51ED\u7A7A\u60F3\u3002\u628A\u9009\u9879\u62FC\u8D77\u6765\uFF0C\u5C31\u662F\u4F60\u7684\u4F5C\u6587\u9AA8\u67B6\u3002</div>${idea}</div>` : "";
+    const ideaHtml = idea && vis.ideaPrompts ? `<div class="card"><h3>\u{1F9E9} \u601D\u8DEF\u751F\u6210\u5668\uFF08\u5148\u60F3\u6E05\u695A\u518D\u52A8\u7B14\uFF09</h3><div class="muted" style="margin-bottom:8px">\u6BCF\u4E00\u6B65\u90FD\u662F\u201C\u9009\u4E00\u9009\u201D\uFF0C\u4E0D\u7528\u81EA\u5DF1\u51ED\u7A7A\u60F3\u3002\u628A\u9009\u9879\u62FC\u8D77\u6765\uFF0C\u5C31\u662F\u4F60\u7684\u4F5C\u6587\u9AA8\u67B6\u3002</div>${idea}</div>` : "";
     const bank = (composition2.wordBank || []).map((g) => `
     <div class="cp-bank-group">
       <div class="cp-bank-group-name">${esc(g.group)}</div>
       <div class="cp-chips">${(g.words || []).map((w) => `<span class="cp-chip word">${esc(w)}</span>`).join("")}</div>
     </div>`).join("");
-    const bankHtml = bank ? `<div class="card"><h3>\u{1F3E6} \u8BCD\u6C47\u94F6\u884C\uFF08\u6CA1\u6709\u8BCD\u91CF\uFF1F\u76F4\u63A5\u6311\u7740\u7528\uFF09</h3><div class="muted" style="margin-bottom:8px">\u5148\u201C\u501F\u8BCD\u201D\uFF0C\u6162\u6162\u53D8\u6210\u81EA\u5DF1\u7684\u3002\u628A\u65B9\u6846\u91CC\u7684\u8BCD\u586B\u8FDB\u53E5\u5B50\uFF0C\u53E5\u5B50\u5C31\u6F02\u4EAE\u4E86\u3002</div>${bank}</div>` : "";
+    const bankHtml = bank && vis.wordBank ? `<div class="card"><h3>\u{1F3E6} \u8BCD\u6C47\u94F6\u884C\uFF08\u6CA1\u6709\u8BCD\u91CF\uFF1F\u76F4\u63A5\u6311\u7740\u7528\uFF09</h3><div class="muted" style="margin-bottom:8px">\u5148\u201C\u501F\u8BCD\u201D\uFF0C\u6162\u6162\u53D8\u6210\u81EA\u5DF1\u7684\u3002\u628A\u65B9\u6846\u91CC\u7684\u8BCD\u586B\u8FDB\u53E5\u5B50\uFF0C\u53E5\u5B50\u5C31\u6F02\u4EAE\u4E86\u3002</div>${bank}</div>` : "";
     const outline = (composition2.outlineTemplate || "").split("\n").map((l) => `<div class="cp-line">${esc(l)}</div>`).join("");
-    const outlineHtml = outline ? `<div class="card"><h3>\u{1F5C2} \u4E60\u4F5C\u63D0\u7EB2\u6A21\u677F\uFF08\u586B\u7A7A\u5F0F\uFF09</h3><div class="cp-outline">${outline}</div></div>` : "";
+    const outlineHtml = outline && vis.outline ? `<div class="card"><h3>\u{1F5C2} \u4E60\u4F5C\u63D0\u7EB2\u6A21\u677F\uFF08\u586B\u7A7A\u5F0F\uFF09</h3><div class="cp-outline">${outline}</div></div>` : "";
     const ladder = (composition2.ladder || []).map((l) => `
     <div class="cp-ladder-step">
       <span class="cp-ladder-no">${esc(l.level)}</span>
@@ -8037,7 +8450,7 @@
     const examples = (composition2.examples || []).map(
       (ex) => `<div class="cp-ex"><div class="cp-ex-title">${esc(ex.title)}</div><div class="cp-ex-excerpt">${esc(ex.excerpt)}</div><div class="cp-ex-hl">\u{1F4A1} ${esc(ex.highlight)}</div></div>`
     ).join("");
-    const examplesHtml = examples ? `<div class="card"><h3>\u{1F4DA} \u8303\u6587\u501F\u9274\uFF08\u540C\u4E00\u4E3B\u9898\u4ECE 150 \u5B57\u957F\u5230 500 \u5B57\uFF09</h3>${examples}</div>` : "";
+    const examplesHtml = examples && vis.examples ? `<div class="card"><h3>\u{1F4DA} \u8303\u6587\u501F\u9274\uFF08\u540C\u4E00\u4E3B\u9898\u4ECE 150 \u5B57\u957F\u5230 500 \u5B57\uFF09</h3>${examples}</div>` : "";
     const speechHtml = composition2.speechNote ? `<div class="card cp-speech"><h3>\u{1F399} \u4ECE\u8BF4\u5230\u5199\uFF08\u4E0D\u4F1A\u5199\u5C31\u5148\u8BF4\uFF09</h3><div>${esc(composition2.speechNote)}</div></div>` : "";
     const progress = (composition2.progressRubric || []).map((r) => `<li>${esc(r)}</li>`).join("");
     const progressHtml = progress ? `<div class="card"><h3>\u{1F331} \u8FDB\u6B65\u578B\u8BC4\u5206\uFF08\u770B\u89C1\u81EA\u5DF1\u7684\u8FDB\u6B65\uFF09</h3><ul class="reqs">${progress}</ul></div>` : "";
@@ -8056,6 +8469,7 @@
     <div class="big-idea">\u{1F3AF} \u5355\u5143\u6838\u5FC3\u5199\u6CD5\uFF1A${esc(composition2.coreMethod)}</div>
     <div class="card"><h3>\u{1F4DD} \u5199\u4F5C\u4EFB\u52A1\uFF08\u4E94\u5E74\u7EA7\u4E0A\u5B66\u671F\u7EA6 500 \u5B57\uFF09</h3><div>${esc(composition2.prompt)}</div></div>
     ${textRelation}
+    ${scaffoldCard}
     <div class="card"><h3>\u{1F9ED} \u501F\u7269\u6292\u60C5\u56DB\u6B65\u6CD5\uFF08\u7167\u7740\u5199\u5C31\u4E0D\u8DD1\u9898\uFF09</h3><div class="cp-steps">${fw}</div></div>
     ${ideaHtml}
     ${bankHtml}
@@ -8417,9 +8831,10 @@
   </div>`;
   }
   function renderExam({ unitId, exam: exam2, graded }) {
+    const confMap = graded && graded.confidenceMap || {};
     const levels = (exam2.levels || []).map((lv, li) => {
       const glv = graded ? graded.levels[li] : null;
-      return renderExamLevelCard(lv, glv, li, unitId);
+      return renderExamLevelCard(lv, glv, li, unitId, confMap);
     }).join("");
     const summary = graded ? renderExamSummary(graded) : "";
     return `<div class="exam-page">
@@ -8445,10 +8860,10 @@
     if (!auto.every((i) => i.answered)) return "todo";
     return auto.every((i) => i.correct) ? "mastered" : "wrong";
   }
-  function renderExamLevelCard(lv, glv, li, unitId) {
+  function renderExamLevelCard(lv, glv, li, unitId, confMap = {}) {
     const status = examLevelStatus(glv);
     const light = status === "mastered" ? "\u{1F7E2}" : status === "wrong" ? "\u{1F534}" : status === "review" ? "\u{1F535}" : "\u26AA";
-    const itemsHtml = (lv.items || []).map((it, ii) => renderExamItem(lv, it, ii, glv, li)).join("") || (lv.kind === "writing" ? renderWritingBlock(lv, glv, li, unitId) : "");
+    const itemsHtml = (lv.items || []).map((it, ii) => renderExamItem(lv, it, ii, glv, li, confMap)).join("") || (lv.kind === "writing" ? renderWritingBlock(lv, glv, li, unitId) : "");
     const weakBadge = status === "wrong" ? `<span class="badge red">\u6709\u9519\u9898</span>` : status === "mastered" ? `<span class="badge green">\u5DF2\u638C\u63E1</span>` : "";
     return `<div class="exam-level ${status}">
     <div class="exam-level-head">
@@ -8461,8 +8876,10 @@
     <div class="exam-level-body">${itemsHtml}</div>
   </div>`;
   }
-  function renderExamItem(lv, it, ii, glv, li) {
+  function renderExamItem(lv, it, ii, glv, li, confMap = {}) {
     const g = glv ? glv.items[ii] : null;
+    const conf = confMap[it.id] || "";
+    const confHtml = lv.needConfidence && it.id ? renderConfidencePicker(it.id, conf) + (g && g.auto && conf ? renderMetaBadge(g.correct, conf) : "") : "";
     if (lv.kind === "pinyin2word") {
       return `<div class="exam-row">
       <span class="ep">${esc(it.pinyin)}</span>
@@ -8472,10 +8889,10 @@
     }
     if (lv.kind === "choice") {
       const opts = (it.options || []).map((o) => `<label class="opt"><input type="radio" name="c_${it.id}" data-key="c_${it.id}" value="${esc(o.key)}" ${g && g.userAnswer === o.key ? "checked" : ""}/> ${esc(o.key)}. ${esc(o.text)}</label>`).join("");
-      return `<div class="exam-q"><div class="eq-stem">${esc(it.stem)}</div>${opts}${g ? resultBadge(g) + explain(g) : ""}</div>`;
+      return `<div class="exam-q"><div class="eq-stem">${esc(it.stem)}</div>${opts}${confHtml}${g ? resultBadge(g) + explain(g) : ""}</div>`;
     }
     if (lv.kind === "fill") {
-      return `<div class="exam-q"><div class="eq-stem">${renderFillStem(it, g)}</div>${g ? resultBadge(g) + explain(g) : ""}</div>`;
+      return `<div class="exam-q"><div class="eq-stem">${renderFillStem(it, g)}</div>${confHtml}${g ? resultBadge(g) + explain(g) : ""}</div>`;
     }
     return "";
   }
@@ -8506,6 +8923,89 @@
   }
   function explain(g) {
     return g.explanation ? `<div class="gs-note muted">\u89E3\u6790\uFF1A${esc(g.explanation)}</div>` : "";
+  }
+  function renderAbilityCard({ radar = [], calibration = {} } = {}) {
+    const size = 230, cx = 115, cy = 112, R = 74;
+    const ang = (i) => (-90 + i * 60) * Math.PI / 180;
+    const pt = (i, ratio) => [cx + R * ratio * Math.cos(ang(i)), cy + R * ratio * Math.sin(ang(i))];
+    const polyStr = (ratio) => radar.map((_, i) => pt(i, ratio).map((n) => n.toFixed(1)).join(",")).join(" ");
+    const grid = [0.25, 0.5, 0.75, 1].map((k) => `<polygon class="radar-ring" points="${polyStr(k)}" />`).join("");
+    const axes = radar.map((_, i) => {
+      const [x, y] = pt(i, 1);
+      return `<line class="radar-axis" x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" />`;
+    }).join("");
+    const area = radar.map((d, i) => pt(i, (d.rate == null ? 0 : d.rate) / 100).map((n) => n.toFixed(1)).join(",")).join(" ");
+    const dots = radar.map((d, i) => {
+      const [x, y] = pt(i, (d.rate == null ? 0 : d.rate) / 100);
+      return `<circle class="radar-dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" />`;
+    }).join("");
+    const labels = radar.map((d, i) => {
+      const [x, y] = pt(i, 1.28);
+      const anchor = Math.abs(x - cx) < 6 ? "middle" : x > cx ? "start" : "end";
+      const val = d.rate == null ? "\u672A\u6D4B" : d.rate + "%";
+      return `<text class="radar-label" x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="${anchor}">${esc(d.no)}${esc(d.name)} ${val}</text>`;
+    }).join("");
+    const legend = radar.map((d) => `<div class="radar-legend-item"><b>${esc(d.no)}${esc(d.name)}</b><span class="muted">${esc(d.desc)}</span>
+      <span class="tag">${d.rate == null ? "\u6682\u672A\u6D4B\u5230" : `${d.mastered}/${d.total} \u9898 \xB7 ${d.rate}%`}</span></div>`).join("");
+    const cal = typeof calibration.rate === "number" ? `<div class="muted">\u{1F3AF} \u81EA\u6211\u5224\u65AD\u51C6\u786E\u7387 <b>${calibration.rate}%</b>\uFF08${calibration.total} \u9898\u5E26\u628A\u63E1\u5EA6\uFF09\u2014\u2014\u8FD9\u662F"\u81EA\u8C03"\u8FD9\u4E00\u7EF4\u7684\u6765\u6E90\u3002</div>` : '<div class="muted">\u{1F3AF} \u505A\u9898\u65F6\u5148\u9009"\u6709\u591A\u5927\u628A\u63E1"\uFF0C\u8FD9\u91CC\u5C31\u4F1A\u957F\u51FA\u81EA\u6211\u5224\u65AD\u51C6\u786E\u7387\u3002</div>';
+    return `<div class="card radar-card">
+    <h3>\u{1F4CA} \u6211\u7684\u80FD\u529B\u96F7\u8FBE\uFF08\u516D\u7EF4\uFF09</h3>
+    <div class="muted">\u638C\u63E1\u5EA6\u56DE\u7B54"\u77E5\u8BC6\u70B9\u4F1A\u4E0D\u4F1A"\uFF0C\u96F7\u8FBE\u56DE\u7B54"\u6211\u80FD\u505A\u591A\u9AD8\u7EA7\u7684\u601D\u7EF4\u52A8\u4F5C"\u3002\u516D\u7EF4\u90FD\u4F1A\uFF0C\u624D\u7B97\u771F\u4F1A\u3002</div>
+    <div class="radar-wrap">
+      <svg class="radar-svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="\u80FD\u529B\u96F7\u8FBE\u56FE">
+        ${grid}${axes}
+        <polygon class="radar-area" points="${area}" />
+        ${dots}${labels}
+      </svg>
+      <div class="radar-legend">${legend}</div>
+    </div>
+    ${cal}
+  </div>`;
+  }
+  function renderIllusionMap({ unitId, records = [] }) {
+    const { map, counts, calibration } = summarizeIllusion(records);
+    const hasData = records.length > 0;
+    const calLine = calibration.rate === null ? `<div class="muted">\u8FD8\u6CA1\u6709\u5E26\u628A\u63E1\u5EA6\u7684\u4F5C\u7B54\u8BB0\u5F55\u3002\u53BB\u300C\u8BFE\u6587\u7CBE\u8BFB\u300D\u6216\u300C\u8003\u8BD5\u8003\u70B9\u300D\u505A\u9898\u65F6\uFF0C\u5148\u9009\u4E00\u4E0B"\u8FD9\u9898\u4F60\u6709\u591A\u5927\u628A\u63E1"\uFF0C\u8FD9\u91CC\u5C31\u4F1A\u957F\u51FA\u4F60\u7684\u9519\u89C9\u5730\u56FE\u3002</div>` : `<div class="im-cal">\u{1F3AF} <b>\u81EA\u6211\u5224\u65AD\u51C6\u786E\u7387 ${calibration.rate}%</b>\uFF08\u5171 ${calibration.total} \u9898\u5E26\u628A\u63E1\u5EA6\uFF09
+       <div class="muted">\u51C6\u786E\u7387\u8D8A\u9AD8\uFF0C\u8BF4\u660E\u4F60\u8D8A\u6E05\u695A\u81EA\u5DF1"\u54EA\u4E9B\u4F1A\u3001\u54EA\u4E9B\u4E0D\u4F1A"\u2014\u2014\u8FD9\u662F\u6BD4\u591A\u8003\u51E0\u5206\u66F4\u91CD\u8981\u7684\u4E8B\u3002</div></div>`;
+    const block = (type) => {
+      const t = META_TYPES[type];
+      const list = map[type] || [];
+      const detail = type === "illusion" || type === "unknown" ? list.map((r) => `<div class="im-item">
+          <div class="im-item-stem">${esc(r.stem || r.id)}</div>
+          <div class="muted">\u6765\u6E90\uFF1A${esc(r.source)}${r.where ? " \xB7 " + esc(r.where) : ""}\u3000\u6211\u7684\u628A\u63E1\uFF1A${esc(confLabel(r.confidence))}</div>
+          <div class="explain"><b>\u6B63\u786E\u7B54\u6848\uFF1A</b>${esc(r.answer || "\u2014")}<br>${esc(r.explanation || "")}</div>
+          <div class="row" style="margin-top:6px">
+            <button class="btn sm" data-action="queue-review" data-unit="${unitId}" data-id="${esc(r.id)}">\u{1F501} \u52A0\u5165\u590D\u4E60\u961F\u5217\uFF081/3/7\u5929\uFF09</button>
+          </div>
+        </div>`).join("") : "";
+      return `<div class="im-block ${type}">
+      <div class="im-block-head">${t.emoji} <b>${t.label}</b> <span class="tag">${list.length} \u9898</span></div>
+      <div class="muted">${t.tip}</div>
+      ${detail}
+    </div>`;
+    };
+    const warn = illusionAlert({ counts, calibration }) ? `<div class="warn-gate">\u26A0\uFE0F \u4F60\u6709 <b>${counts.illusion}</b> \u9053\u9898"\u4EE5\u4E3A\u5F88\u6709\u628A\u63E1\u5176\u5B9E\u7B54\u9519\u4E86"\u3002\u8FD9\u51E0\u9053\u6700\u503C\u5F97\u56DE\u7089\u2014\u2014\u56E0\u4E3A\u771F\u6B63\u5371\u9669\u7684\u4E0D\u662F\u4E0D\u4F1A\uFF0C\u800C\u662F\u4E0D\u77E5\u9053\u81EA\u5DF1\u4E0D\u4F1A\u3002</div>` : "";
+    return `<div class="im-page">
+    <div class="page-title">\u{1F9ED} \u6211\u7684\u9519\u89C9\u5730\u56FE</div>
+    <div class="big-idea">\u{1F4A1} \u4F1A\u505A\u7684\u9898\u4E0D\u7A00\u5947\uFF0C<b>\u77E5\u9053\u81EA\u5DF1\u54EA\u91CC\u4E0D\u4F1A</b>\u624D\u662F\u771F\u672C\u4E8B\u3002\u8FD9\u5F20\u56FE\u5E2E\u4F60\u770B\u89C1"\u6211\u4EE5\u4E3A\u6211\u4F1A"\u7684\u9677\u9631\u3002</div>
+    ${calLine}
+    ${hasData ? warn : ""}
+    <div class="im-grid">
+      ${block("mastered")}
+      ${block("lucky")}
+      ${block("illusion")}
+      ${block("unknown")}
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" data-action="go-unit" data-unit="${unitId}">\u2190 \u8FD4\u56DE\u5355\u5143</button>
+    </div>
+  </div>`;
+  }
+  function confLabel(conf) {
+    if (conf === "sure") return "\u{1F4AA} \u5F88\u6709\u628A\u63E1";
+    if (conf === "maybe") return "\u{1F914} \u6709\u70B9\u628A\u63E1";
+    if (conf === "guess") return "\u{1F3B2} \u5B8C\u5168\u5728\u731C";
+    return "\uFF08\u672A\u9009\uFF09";
   }
   function renderBasicFeynman(seg) {
     const items = SIMPLIFIED_FEYNMAN.map((f) => `
@@ -8584,8 +9084,21 @@
     const bigIdeaRecap = fullRecap ? `<div class="big-idea">\u{1F3AF} \u5927\u6982\u5FF5\u901A\u5173\uFF1A${esc(reviewBigIdeaPrompt(unit9))}</div>` : "";
     return header + bigIdeaMini + wordGateBlock + bodyHtml + bigIdeaRecap;
   }
+  function renderConfidencePicker(qid, cur = "") {
+    const opts = CONFIDENCE_LEVELS.map(
+      (c) => `<label class="conf-opt"><input type="radio" name="conf_${esc(qid)}" value="${c.key}" ${cur === c.key ? "checked" : ""}/> ${c.emoji} ${c.label}</label>`
+    ).join("");
+    return `<div class="conf-pick"><span class="conf-label">\u{1F9ED} \u5148\u522B\u6025\u7740\u9009\u7B54\u6848\u2014\u2014\u8FD9\u9898\u4F60\u6709\u591A\u5927\u628A\u63E1\uFF1F</span>${opts}</div>`;
+  }
+  function renderMetaBadge(correct, conf) {
+    const type = classifyMeta({ correct, confidence: conf });
+    if (type === "nodata") return "";
+    const t = META_TYPES[type];
+    return `<div class="meta-badge ${type}">${t.emoji} <b>${t.label}</b>\uFF1A${t.tip}</div>`;
+  }
   function renderReadingChoiceItem(it, type, graded) {
     const res = graded ? graded.results.find((r) => r.id === it.id) : null;
+    const conf = graded && graded.confidenceMap ? graded.confidenceMap[it.id] || "" : "";
     const opts = it.options.map((o) => {
       const mark = res ? o.key === it.answer ? " \u2705" : o.key === res.selected ? " \u274C" : "" : "";
       return `<label class="opt"><input type="radio" name="rd_${it.id}" value="${esc(o.key)}"> ${esc(o.key)}. ${esc(o.text)}${mark}</label>`;
@@ -8593,6 +9106,8 @@
     return `<div class="rd-q" data-qid="${it.id}">
     <div class="q-text">\xB7 ${esc(it.stem)} <span class="tag">${type === "discriminate" ? "\u8FA8\u6790" : "\u9009\u62E9"}${it.level ? "\xB7" + esc(it.level) : ""}</span></div>
     <div class="opts">${opts}</div>
+    ${renderConfidencePicker(it.id, conf)}
+    ${res && conf ? renderMetaBadge(res.correct, conf) : ""}
     ${res && res.explanation ? `<div class="explain">${esc(res.explanation)}</div>` : ""}
   </div>`;
   }
@@ -9094,6 +9609,7 @@
   var examGradedMap = {};
   var compositionLearnedMap = {};
   var accumQuizMap = {};
+  var scaffoldNotice = "";
   var EXAM_BY_UNIT = { u1: exam };
   function getExam(unitId) {
     return EXAM_BY_UNIT[unitId] || null;
@@ -9271,6 +9787,14 @@ ${optionsText}
     }
     return gates;
   }
+  async function loadMetaRecords(unitId) {
+    const rq = readingQuiz.unitId === unitId ? readingQuiz : null;
+    const lessons = listLessons(textbook, unitId);
+    const readingProgress = {};
+    for (const l of lessons) readingProgress[l.id] = await getReadingProgressMap(l.id);
+    const examRecord = await getExamRecord(unitId);
+    return collectMetaRecords({ readingQuiz: rq, readingProgress, exam: getExam(unitId), examRecord });
+  }
   async function computeHome(progressMap) {
     var _a, _b;
     const units = textbook.units;
@@ -9305,6 +9829,8 @@ ${optionsText}
     if (continueLink) todayPlan.push({ text: `\u7EE7\u7EED\uFF1A${continueLink.label}`, action: "go-lesson", lesson: continueLink.lessonId, primary: true });
     const weak = await listWeakPoints({ status: "active" });
     weak.slice(0, 3).forEach((w) => todayPlan.push({ text: `\u91CD\u7EC3\u8584\u5F31\u70B9\uFF1A${(w.knowledgePoint || w.questionText).slice(0, 16)}`, action: "train-weak", wp: w.id }));
+    const queue = await getSpacedQueue();
+    dueItems(queue.items, Date.now()).slice(0, 3).forEach((it) => todayPlan.push({ kind: "spaced", id: it.id, stage: Number(it.stage) || 0, text: (it.title || "").slice(0, 24) }));
     return { continueLink, todayPlan };
   }
   var appEl;
@@ -9328,6 +9854,7 @@ ${optionsText}
     if (parts[0] === "composition") return { name: "composition", unitId: parts[1] };
     if (parts[0] === "garden") return { name: "garden", unitId: parts[1] };
     if (parts[0] === "ureview") return { name: "ureview", unitId: parts[1] };
+    if (parts[0] === "illusion") return { name: "illusion", unitId: parts[1] };
     if (parts[0] === "activate") return { name: "activate" };
     return { name: "home" };
   }
@@ -9357,7 +9884,16 @@ ${optionsText}
         location.hash = "#/";
         return;
       }
-      html = renderUnit({ unitId: route.unitId, progressMap, accumStages: await getAccumStages(route.unitId), accumQuiz: accumQuizMap[route.unitId] || {}, accumExamples: await getAccumExamplesForUnit(route.unitId), bcDone: await isExplored(route.unitId), reviewReady: await computeReviewReady(route.unitId), gates: await computeGates(route.unitId), compositionLearned: await getCompositionLearned(route.unitId), gardenLearned: await getGardenLearned(route.unitId) });
+      const metaRecords = await loadMetaRecords(route.unitId);
+      const radar = computeAbilityRadar(metaRecords);
+      const calibration = computeCalibration(metaRecords);
+      if (typeof calibration.rate === "number") {
+        const metaDim = radar.find((d) => d.key === "meta");
+        metaDim.total = calibration.total;
+        metaDim.mastered = calibration.calibrated;
+        metaDim.rate = calibration.rate;
+      }
+      html = renderUnit({ unitId: route.unitId, progressMap, accumStages: await getAccumStages(route.unitId), accumQuiz: accumQuizMap[route.unitId] || {}, accumExamples: await getAccumExamplesForUnit(route.unitId), bcDone: await isExplored(route.unitId), reviewReady: await computeReviewReady(route.unitId), gates: await computeGates(route.unitId), compositionLearned: await getCompositionLearned(route.unitId), gardenLearned: await getGardenLearned(route.unitId), ability: { radar, calibration } });
     } else if (route.name === "bigconcept") {
       const big = getBigConcept(route.unitId);
       const bcState = await getBigConceptState(route.unitId);
@@ -9420,7 +9956,7 @@ ${optionsText}
         return;
       }
       const learned = await getCompositionLearned(route.unitId);
-      html = renderComposition({ unitId: route.unitId, composition: comp, learned });
+      html = renderComposition({ unitId: route.unitId, composition: comp, learned, scaffold: await getScaffoldState(route.unitId) });
     } else if (route.name === "garden") {
       const unit9 = textbook.units.find((u) => u.id === route.unitId);
       const garden = unit9 && unit9.garden;
@@ -9465,6 +10001,9 @@ ${optionsText}
         missing: readiness.missing,
         weakPoints: await listWeakPoints({ unitId })
       });
+    } else if (route.name === "illusion") {
+      const records = await loadMetaRecords(route.unitId);
+      html = renderIllusionMap({ unitId: route.unitId, records });
     } else if (route.name === "reading") {
       const lessonId = route.lessonId;
       const unitId = getLesson(textbook, lessonId).unitId;
@@ -9570,8 +10109,23 @@ ${optionsText}
       case "composition-undone":
         await onCompositionDone(a.unit, false);
         break;
+      case "scaffold-help":
+        await onScaffoldHelp(a.unit);
+        break;
+      case "spaced-hit":
+        await onSpacedResult(a.id, true);
+        break;
+      case "spaced-miss":
+        await onSpacedResult(a.id, false);
+        break;
+      case "queue-review":
+        await onQueueReview(a.unit, a.id);
+        break;
       case "go-ureview":
         location.hash = "#/ureview/" + a.unit;
+        break;
+      case "go-illusion":
+        location.hash = "#/illusion/" + a.unit;
         break;
       case "activate-code":
         await onActivateCode();
@@ -10024,6 +10578,12 @@ ${optionsText}
       answers[it.id] = ta ? ta.value : "";
     }
     const graded = gradeReadingSegment(seg, answers);
+    const confidenceMap = {};
+    for (const it of [...seg.choice || [], ...seg.discriminate || []]) {
+      const el = appEl.querySelector(`input[name="conf_${it.id}"]:checked`);
+      if (el) confidenceMap[it.id] = el.value;
+    }
+    graded.confidenceMap = confidenceMap;
     await saveReadingSegment(lessonId, segId, graded.passed, graded);
     readingGraded[segId] = graded;
     render();
@@ -10095,9 +10655,66 @@ ${optionsText}
     const exam2 = getExam(unitId);
     if (!exam2) return;
     const graded = gradeExam(exam2, answers);
+    const confidenceMap = {};
+    appEl.querySelectorAll('input[name^="conf_"]').forEach((el) => {
+      if (el.checked) confidenceMap[el.name.slice("conf_".length)] = el.value;
+    });
+    graded.confidenceMap = confidenceMap;
+    const writingIdx = (exam2.levels || []).findIndex((l) => l.kind === "writing");
+    if (writingIdx >= 0) {
+      const ev = evaluateComposition(answers[`w_${writingIdx}`] || "", 500);
+      if (ev.length > 0) {
+        const st = await getScaffoldState(unitId);
+        const next = applyScaffold(st, ev.ok);
+        await saveScaffoldState(unitId, next);
+        if (next.changed) scaffoldNotice = next.message;
+      }
+    }
     examGradedMap[unitId] = graded;
     await saveExamRecord(unitId, graded);
     await recordExamResult(unitId, graded);
+    if (scaffoldNotice) {
+      alert(scaffoldNotice);
+      scaffoldNotice = "";
+    }
+    render();
+  }
+  async function onSpacedResult(id, ok) {
+    const queue = await getSpacedQueue();
+    const idx = queue.items.findIndex((it) => it.id === id);
+    if (idx < 0) return;
+    const next = advanceSpacedItem(queue.items[idx], ok);
+    queue.items[idx] = next;
+    await saveSpacedQueue(queue.items);
+    alert(ok ? next.graduated ? "\u{1F44D} \u8FD9\u9053\u9898\u4F60\u5DF2\u7ECF\u8FDE\u7EED\u8FC7\u5173\uFF0C\u53EF\u4EE5\u4ECE\u590D\u4E60\u961F\u5217\u6BD5\u4E1A\u5566\uFF01" : `\u2705 \u60F3\u8D77\u6765\u4E86\uFF01\u4E0B\u6B21 ${[1, 3, 7][next.stage]} \u5929\u540E\u518D\u89C1\u5B83\u4E00\u6B21\uFF0C\u8BB0\u5F97\u66F4\u7262\u3002` : "\u6CA1\u5173\u7CFB\uFF0C\u5FD8\u4E86\u5F88\u6B63\u5E38\u2014\u2014\u5B83\u660E\u5929\u518D\u6765\u627E\u4F60\u4E00\u6B21\u3002");
+    render();
+  }
+  async function onQueueReview(unitId, id) {
+    const records = await loadMetaRecords(unitId);
+    const r = records.find((x) => x.id === id);
+    if (!r) return;
+    const item = createSpacedItem({
+      id: `${unitId}:${r.id}`,
+      title: r.stem || r.id,
+      source: `${r.source}${r.where ? " \xB7 " + r.where : ""}`,
+      answer: r.answer || "",
+      explanation: r.explanation || ""
+    });
+    const queue = await getSpacedQueue();
+    const merged = mergeSpacedItem(queue.items, item);
+    if (!merged.added) {
+      alert("\u8FD9\u9053\u9898\u5DF2\u7ECF\u5728\u590D\u4E60\u961F\u5217\u91CC\u4E86\u3002");
+      return;
+    }
+    await saveSpacedQueue(merged.items);
+    alert("\u5DF2\u52A0\u5165\u590D\u4E60\u961F\u5217\uFF1A1 \u5929\u540E\u30013 \u5929\u540E\u30017 \u5929\u540E\u5404\u6765\u4E00\u6B21\u3002\u95F4\u9694\u7740\u590D\u4E60\uFF0C\u624D\u8BB0\u5F97\u7262\u3002");
+    render();
+  }
+  async function onScaffoldHelp(unitId) {
+    const st = await getScaffoldState(unitId);
+    const next = requestMoreScaffold(st);
+    await saveScaffoldState(unitId, next);
+    if (next.message) alert(next.message);
     render();
   }
   async function onCompositionDone(unitId, learned = true) {
