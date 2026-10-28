@@ -378,6 +378,38 @@ body.parent-mode .hide-student { display:block; }
 .exam-summary { margin:10px 0; padding:10px 12px; background:var(--green-soft); border-radius:10px; font-weight:600; }
 .exam-weak { margin:8px 0; padding:12px 14px; background:#fff7e6; border:1px solid #ffd591; border-left:4px solid #fa8c16; border-radius:10px; font-weight:700; color:#ad6800; }
 
+/* ===== 单元闯关卷（先估分再测 · 元认知校准）样式 ===== */
+.mock-predict { margin:10px 0; padding:12px 14px; background:#eef4ff; border:1px solid #adc6ff; border-radius:12px; }
+.mock-predict-h { font-weight:800; margin-bottom:4px; }
+.mock-predict-in { width:90px; }
+.mock-predict-done { margin:10px 0; padding:10px 12px; background:var(--green-soft); border-radius:10px; font-weight:700; }
+.mock-open { margin:12px 0; padding:12px 14px; background:#fbfcfe; border:1px solid var(--line); border-radius:12px; }
+.mock-open-h { font-weight:800; margin-bottom:4px; }
+.mock-cal { margin:14px 0 0; padding:12px 14px; border-radius:12px; font-weight:700; }
+.mock-cal.ok { background:var(--green-soft); border:1px solid var(--green); }
+.mock-cal.warn { background:#fff7e6; border:1px solid #ffd591; color:#ad6800; }
+.mock-cal-h { font-weight:800; margin-bottom:4px; }
+
+/* ===== 我的作品集样式 ===== */
+.pf-page { padding:6px 2px; }
+.pf-grid { margin-top:12px; display:flex; flex-direction:column; gap:12px; }
+.pf-card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px 14px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+.pf-card h3 { margin:0 0 8px; font-size:16px; }
+.pf-block { margin-top:8px; }
+.pf-label { font-weight:800; color:#6b4f9e; margin-bottom:3px; }
+.pf-text { background:#fbfcfe; border:1px solid var(--line); border-radius:8px; padding:8px 10px; line-height:1.8; white-space:pre-wrap; }
+.pf-q { margin:3px 0; line-height:1.7; }
+.pf-level { display:inline-block; font-size:12px; font-weight:800; border-radius:6px; padding:1px 7px; margin-right:6px; }
+.pf-great { background:#f6ffed; color:#389e0d; border:1px solid #b7eb8f; }
+.pf-good { background:#e6f7ff; color:#096dd9; border:1px solid #91d5ff; }
+
+/* ===== 单元特色任务（限时阅读 / 观察单 / 即景观察）样式 ===== */
+.sp-page { padding:6px 2px; }
+.sp-passage { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:12px 14px; line-height:2; margin:10px 0; }
+.sp-timer-row { display:flex; align-items:center; gap:10px; margin:8px 0; }
+.sp-timer { font-weight:800; color:#cf1322; }
+.sp-field { margin-top:10px; }
+
 /* ===== 习作独立学习块（第一学习板块）样式 ===== */
 .cp-page { padding:6px 2px; }
 .cp-steps { display:flex; flex-direction:column; gap:10px; margin-top:8px; }
@@ -604,6 +636,10 @@ body.parent-mode .hide-student { display:block; }
 .or-fb-item:last-child { border-bottom:none; }
 .or-fb-item.pass b { color:#389e0d; }
 .or-fb-item.miss b { color:#ad6800; }
+.or-practice { border-color:#ffd591; background:linear-gradient(180deg,#fff7e6,#fffdf8); }
+.or-steps { margin:10px 0 0; padding-left:22px; display:flex; flex-direction:column; gap:12px; }
+.or-steps li { padding-left:4px; line-height:1.7; }
+.or-steps li b { color:#ad6800; font-size:15px; }
 .or-probe { border-left:4px solid #ffe58f; }
 .or-probe-r { margin-top:8px; padding:8px 12px; border-radius:10px; line-height:1.7; }
 .or-probe-r.st-solid { background:var(--green-soft); }
