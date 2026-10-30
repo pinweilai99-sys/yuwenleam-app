@@ -18392,8 +18392,10 @@
   // src/config/activation.js
   var ACTIVATION_SALT = "yuwenleam-lic-v1-2026autumn";
   var ACTIVATION_HASHES = [
-    "0e6a7385"
+    "0e6a7385",
     // 初始占位（项目未公开，无真实用户；上线后由 add_key.mjs 追加真实客户码）
+    "985148e3"
+    // 俊皓 · 2026-10-30
   ];
   var ACTIVATION_INFO = {
     knowledgePlanetUrl: "",
