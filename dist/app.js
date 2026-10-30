@@ -17470,52 +17470,11 @@
   };
   var u6_default2 = oral3;
 
-  // src/data/oral/u8.js
-  var oral4 = {
-    unitId: "u8",
-    title: "\u53E3\u8BED\u4EA4\u9645\uFF1A\u6211\u6700\u559C\u6B22\u7684\u4EBA\u7269\u5F62\u8C61",
-    prompt: "\u5728\u4F60\u8BFB\u8FC7\u7684\u4E66\u3001\u770B\u8FC7\u7684\u5F71\u89C6\u4F5C\u54C1\u91CC\uFF0C\u4E00\u5B9A\u6709\u4F60\u6700\u559C\u6B22\u7684\u4EBA\u7269\u5F62\u8C61\u3002\u8BF7\u628A\u4ED6\uFF08\u5979\uFF09\u4ECB\u7ECD\u7ED9\u5927\u5BB6\uFF1A\u51FA\u81EA\u54EA\u90E8\u4F5C\u54C1\u3001\u6709\u4EC0\u4E48\u7279\u70B9\u3001\u4F60\u4E3A\u4EC0\u4E48\u559C\u6B22\u4ED6\uFF08\u5979\uFF09\u3002",
-    tips: ["\u8BF4\u6E05\u4EBA\u7269\u51FA\u81EA\u54EA\u90E8\u4F5C\u54C1", "\u8BB2\u7279\u70B9\u8981\u914D\u5177\u4F53\u4E8B\u4F8B\uFF0C\u4E0D\u8D34\u7A7A\u6807\u7B7E", "\u559C\u6B22\u7684\u7406\u7531\u8981\u8BB2\u51FA\u81EA\u5DF1\u7684\u611F\u53D7"],
-    checklist: [
-      {
-        text: "\u8BF4\u6E05\u4EBA\u7269\u51FA\u81EA\u54EA\u90E8\u4F5C\u54C1",
-        keywords: ["\u300A", "\u8FD9\u672C\u4E66", "\u8FD9\u90E8", "\u52A8\u753B", "\u6545\u4E8B\u91CC", "\u4F5C\u8005", "\u7535\u89C6\u5267"],
-        example: "\u793A\u8303\uFF1A\u300C\u300A\u897F\u6E38\u8BB0\u300B\u91CC\u7684\u5B59\u609F\u7A7A\uFF0C\u662F\u5434\u627F\u6069\u7B14\u4E0B\u7684\u4EBA\u7269\u3002\u300D"
-      },
-      {
-        text: "\u8BB2\u4E86\u4EBA\u7269\u7279\u70B9\uFF0C\u8FD8\u6709\u5177\u4F53\u4E8B\u4F8B",
-        keywords: ["\u56E0\u4E3A", "\u6709\u4E00\u6B21", "\u6BD4\u5982", "\u8BB0\u5F97", "\u90A3\u65F6", "\u5F53\u65F6", "\u9762\u5BF9"],
-        example: "\u793A\u8303\uFF1A\u4E0D\u8BF4\u300C\u4ED6\u5F88\u52C7\u6562\u300D\uFF0C\u800C\u8BF4\u300C\u5E08\u7236\u8D76\u4ED6\u8D70\u7684\u65F6\u5019\uFF0C\u4ED6\u8FD8\u662F\u56DE\u5934\u4FDD\u62A4\u4E86\u5E08\u7236\u300D\u3002"
-      },
-      {
-        text: "\u8BF4\u51FA\u559C\u6B22\u7684\u7406\u7531\uFF0C\u8BB2\u51FA\u81EA\u5DF1\u7684\u611F\u53D7",
-        keywords: ["\u6211\u559C\u6B22", "\u4F69\u670D", "\u611F\u52A8", "\u503C\u5F97", "\u6559\u4F1A", "\u8BA9\u6211", "\u5F71\u54CD"],
-        example: "\u793A\u8303\uFF1A\u300C\u6211\u559C\u6B22\u4ED6\uFF0C\u662F\u56E0\u4E3A\u4ED6\u8BA9\u6211\u77E5\u9053\uFF1A\u672C\u4E8B\u5927\uFF0C\u66F4\u8981\u5B88\u89C4\u77E9\u3002\u300D"
-      }
-    ],
-    probes: [
-      {
-        kind: "evidence",
-        q: "\u4F60\u8BF4\u4ED6\u300C\u4E86\u4E0D\u8D77\u300D\u2014\u2014\u4F5C\u54C1\u91CC\u54EA\u4E00\u4EF6\u4E8B\u6700\u80FD\u8BC1\u660E\uFF1F\u6362\u4E00\u4EF6\u4E8B\u884C\u4E0D\u884C\uFF0C\u4E3A\u4EC0\u4E48\uFF1F",
-        hint: '\u627E"\u6CA1\u6709\u4ED6\u5C31\u6CA1\u6709\u8FD9\u4E2A\u6545\u4E8B"\u7684\u90A3\u4EF6\u4E8B\u3002',
-        sample: "\u793A\u8303\uFF1A\u6700\u80FD\u8BC1\u660E\u4ED6\u4E86\u4E0D\u8D77\u7684\u662F\u300C\u4E09\u6253\u767D\u9AA8\u7CBE\u300D\u3002\u5E08\u7236\u51A4\u6789\u4ED6\u3001\u8D76\u4ED6\u8D70\uFF0C\u4ED6\u8FD8\u662F\u6015\u5E08\u7236\u6709\u5371\u9669\uFF0C\u56DE\u6765\u4FDD\u62A4\u5E08\u7236\u2014\u2014\u6362\u6210\u522B\u4EBA\u65E9\u5C31\u6482\u6311\u5B50\u4E86\u3002\u6362\u300C\u5927\u95F9\u5929\u5BAB\u300D\u4E0D\u884C\uFF0C\u90A3\u4EF6\u4E8B\u53EA\u8BC1\u660E\u4ED6\u6709\u672C\u4E8B\uFF0C\u8BC1\u660E\u4E0D\u4E86\u4ED6\u91CD\u60C5\u4E49\u3002"
-      },
-      {
-        kind: "transfer",
-        q: "\u5982\u679C\u628A\u8FD9\u4E2A\u4EBA\u7269\u653E\u5230\u6211\u4EEC\u73ED\uFF0C\u4ED6\u4F1A\u5750\u5728\u54EA\u91CC\u3001\u548C\u8C01\u6210\u4E3A\u670B\u53CB\uFF1F\u4E3A\u4EC0\u4E48\uFF1F",
-        hint: "\u6309\u4ED6\u7684\u813E\u6C14\u548C\u672C\u4E8B\u60F3\u4E00\u60F3\u3002",
-        sample: "\u793A\u8303\uFF1A\u4ED6\u53EF\u80FD\u4F1A\u5750\u5728\u9760\u7A97\u7684\u4F4D\u7F6E\uFF0C\u548C\u70ED\u5FC3\u53C8\u6B63\u76F4\u7684\u540C\u5B66\u6210\u4E3A\u670B\u53CB\u3002\u56E0\u4E3A\u4ED6\u672C\u4E8B\u5927\u3001\u7231\u6253\u62B1\u4E0D\u5E73\uFF0C\u8C01\u53D7\u59D4\u5C48\u4ED6\u90FD\u4F1A\u5E2E\u4E00\u628A\u2014\u2014\u4F46\u4ED6\u4E5F\u4F1A\u56E0\u4E3A\u592A\u51B2\u52A8\u88AB\u8001\u5E08\u70B9\u540D\u3002"
-      }
-    ]
-  };
-  var u8_default2 = oral4;
-
   // src/data/oral/index.js
   var ORAL_BY_UNIT = {
     u1: u1_default2,
     u3: u3_default2,
-    u6: u6_default2,
-    u8: u8_default2
+    u6: u6_default2
   };
   function getOral(unitId) {
     return ORAL_BY_UNIT[unitId] || null;
@@ -29309,15 +29268,15 @@
     <div class="row" style="margin-top:10px"><button class="btn sm" data-action="go-unit" data-unit="${esc(unitId)}">\u2190 \u8FD4\u56DE\u5355\u5143</button></div>
   </div>`;
   }
-  function renderOral({ unitId, oral: oral5, state: state2 = null, probes = [] }) {
-    if (!oral5) return `<div class="warn">\u8BE5\u5355\u5143\u6682\u65E0\u53E3\u8BED\u4EA4\u9645\u7EC3\u4E60</div>`;
+  function renderOral({ unitId, oral: oral4, state: state2 = null, probes = [] }) {
+    if (!oral4) return `<div class="warn">\u8BE5\u5355\u5143\u6682\u65E0\u53E3\u8BED\u4EA4\u9645\u7EC3\u4E60</div>`;
     const st = state2 || {};
     const checks = st.checks || [];
     const feedback = st.feedback || null;
     const probeAnswers = st.probeAnswers || [];
     const probeResults = st.probeResults || [];
     const summary = oralSummaryOf(st);
-    const checklistHtml = (oral5.checklist || []).map((it, i) => `
+    const checklistHtml = (oral4.checklist || []).map((it, i) => `
     <label class="or-check">
       <input type="checkbox" data-rid="or-check-${i}" ${checks[i] ? "checked" : ""}>
       <span>${esc(it.text)}</span>
@@ -29352,11 +29311,11 @@
       ${resultHtml}
     </div>`;
     }).join("");
-    const practiceHtml = oral5.practiceSteps && oral5.practiceSteps.length ? `<div class="card or-practice">
+    const practiceHtml = oral4.practiceSteps && oral4.practiceSteps.length ? `<div class="card or-practice">
         <h3>\u{1FA9C} \u6211\u4F1A\u8BB2 \xB7 \u8BB2\u6C11\u95F4\u6545\u4E8B\u7EC3\u4E60\u5173</h3>
         <div class="muted">\u7167\u7740\u8FD9\u4E94\u6B65\u7EC3\uFF0C\u4F60\u5C31\u80FD\u628A\u4E00\u4E2A\u6C11\u95F4\u6545\u4E8B\u8BB2\u5F97\u53C8\u5B8C\u6574\u53C8\u7CBE\u5F69\u3002</div>
         <ol class="or-steps">
-          ${oral5.practiceSteps.map((s, i) => `
+          ${oral4.practiceSteps.map((s, i) => `
             <li>
               <b>${esc(s.title)}</b>
               <div class="gd-para">${esc(s.goal)}</div>
@@ -29366,12 +29325,12 @@
       </div>` : "";
     return `
   <div class="or-page">
-    <div class="page-title">\u{1F4AC} ${esc(oral5.title)}</div>
+    <div class="page-title">\u{1F4AC} ${esc(oral4.title)}</div>
     ${practiceHtml}
     <div class="card">
       <h3>\u{1F3AF} \u4EA4\u9645\u4EFB\u52A1</h3>
-      <div class="gd-para">${esc(oral5.prompt)}</div>
-      <div class="or-tips">${(oral5.tips || []).map((t) => `<span class="tag">\u{1F4A1} ${esc(t)}</span>`).join(" ")}</div>
+      <div class="gd-para">${esc(oral4.prompt)}</div>
+      <div class="or-tips">${(oral4.tips || []).map((t) => `<span class="tag">\u{1F4A1} ${esc(t)}</span>`).join(" ")}</div>
     </div>
     <div class="card">
       <h3>\u{1F5E3} \u6211\u7684\u8868\u8FBE\uFF08\u5148\u81EA\u5DF1\u5224\u65AD\uFF0C\u518D\u8BA9\u7CFB\u7EDF\u5BF9\u7167\uFF09</h3>
@@ -32565,8 +32524,8 @@ ${optionsText}
       }
       const ask = await getAskState(uid);
       const questions = (ask && ask.results || []).filter((r) => r && (r.level === "great" || r.level === "good") && r.q).map((r) => ({ q: r.q, level: r.level }));
-      const oral5 = await getOralState(uid);
-      const oralText = (oral5 && oral5.answer ? String(oral5.answer) : "").trim();
+      const oral4 = await getOralState(uid);
+      const oralText = (oral4 && oral4.answer ? String(oral4.answer) : "").trim();
       units.push({ unitId: uid, title: u.title || uid, writing, questions, oral: oralText ? { text: oralText } : null });
     }
     return units;
