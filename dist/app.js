@@ -18391,7 +18391,16 @@
 
   // src/config/activation.js
   var ACTIVATION_SALT = "yuwenleam-lic-v1-2026autumn";
-  var ACTIVATION_HASH = "0e6a7385";
+  var ACTIVATION_HASHES = [
+    "0e6a7385"
+    // 初始占位（项目未公开，无真实用户；上线后由 add_key.mjs 追加真实客户码）
+  ];
+  var ACTIVATION_INFO = {
+    knowledgePlanetUrl: "",
+    // TODO: 填入知识星球链接
+    wechatPurchase: ""
+    // TODO: 填入非会员微信购买联系方式
+  };
 
   // src/core/activation.js
   function normalizeCode(input = "") {
@@ -18416,9 +18425,11 @@
     for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
     return d === 0;
   }
-  function isCodeValid(input, expectedHash = ACTIVATION_HASH) {
-    if (!input || !expectedHash) return false;
-    return safeEqual(hashCode(input), String(expectedHash).toLowerCase());
+  function isCodeValid(input, hashList = ACTIVATION_HASHES) {
+    if (!input) return false;
+    const h = hashCode(input);
+    const list = Array.isArray(hashList) ? hashList : [hashList];
+    return list.some((eh) => eh && safeEqual(h, String(eh).toLowerCase()));
   }
   function gateStatus(rec = {}) {
     return { mode: rec && rec.activated ? "active" : "locked" };
@@ -28777,12 +28788,15 @@
     return `<details class="gate-pending"><summary>\u{1F50D} \u672A\u638C\u63E1\u5185\u5BB9\uFF08${g.pending.length} \u9879\uFF09\xB7 \u70B9\u5F00\u770B\u89E3\u6790</summary><ul>${items}</ul></details>`;
   }
   function renderActivation({ error = "" }) {
+    const info = ACTIVATION_INFO || {};
+    const planet = info.knowledgePlanetUrl ? `<li>\u{1F31F} \u5DF2\u662F\u77E5\u8BC6\u661F\u7403\u4F1A\u5458\uFF1F\u6FC0\u6D3B\u7801\u514D\u8D39\u9001\uFF0C<a href="${esc(info.knowledgePlanetUrl)}" target="_blank" rel="noopener">\u70B9\u6B64\u8FDB\u661F\u7403\u9886\u53D6 \u2192</a></li>` : "";
+    const wechat = info.wechatPurchase ? `<li>\u{1F4AC} \u975E\u4F1A\u5458\u8D2D\u4E70\uFF1A\u5FAE\u4FE1\u8054\u7CFB <b>${esc(info.wechatPurchase)}</b>\uFF0C\u4ED8\u6B3E\u540E\u53D1\u6FC0\u6D3B\u7801\u3002</li>` : "";
     return `
     <div class="act-page">
       <div class="act-card">
         <div class="act-logo">\u8D39\u66FC\u8BED\u6587</div>
         <h2>\u{1F511} \u8F93\u5165\u6FC0\u6D3B\u7801\uFF0C\u5F00\u59CB\u4F7F\u7528</h2>
-        <div class="act-note">\u672C\u8F6F\u4EF6\u91C7\u7528\u6FC0\u6D3B\u7801\u6388\u6743\uFF1A\u8BF7\u8F93\u5165\u6FC0\u6D3B\u7801\u540E\u4F7F\u7528\u3002\u6FC0\u6D3B\u7801\u8BF7\u5411\u8BFE\u7A0B\u63D0\u4F9B\u65B9\u7D22\u53D6\uFF08\u4ED8\u6B3E\u540E\u53D1\u653E\uFF09\u3002</div>
+        <div class="act-note">\u672C\u8F6F\u4EF6\u91C7\u7528\u6FC0\u6D3B\u7801\u6388\u6743\uFF1A\u6BCF\u4F4D\u7528\u6237\u4E00\u4E2A\u4E13\u5C5E\u6FC0\u6D3B\u7801\u3002\u6FC0\u6D3B\u7801\u8BF7\u5411\u8BFE\u7A0B\u63D0\u4F9B\u65B9\u7D22\u53D6\uFF08\u4ED8\u6B3E\u540E\u53D1\u653E\uFF09\u3002</div>
         <div class="act-row">
           <input class="act-input" data-rid="activation-code" type="text" placeholder="\u683C\u5F0F\u5982 YW5A-XXXX-XXXX-XXXX" autocomplete="off" />
           <button class="btn primary" data-action="activate-code">\u6FC0\u6D3B</button>
@@ -28791,7 +28805,8 @@
         <ul class="act-tips">
           <li>\u6FC0\u6D3B\u7801\u4E0D\u533A\u5206\u5927\u5C0F\u5199\uFF0C\u77ED\u6A2A\u7EBF\u53EF\u7701\u7565\uFF1B</li>
           <li>\u6FC0\u6D3B\u8BB0\u5F55\u4FDD\u5B58\u5728\u672C\u673A\uFF0C\u6362\u8BBE\u5907/\u6E05\u7F13\u5B58\u540E\u9700\u91CD\u65B0\u8F93\u5165\uFF1B</li>
-          <li>\u4E00\u4E2A\u6FC0\u6D3B\u7801\u4F9B\u4E00\u4F4D\u5BB6\u957F\u4F7F\u7528\uFF0C\u8BF7\u52FF\u5916\u4F20\u3002</li>
+          ${planet}
+          ${wechat}
         </ul>
       </div>
     </div>`;
@@ -32609,7 +32624,9 @@ ${optionsText}
     if (isCodeValid(code)) {
       activationError = "";
       await saveActivation({ activated: true, activatedAt: Date.now() });
-      alert("\u6FC0\u6D3B\u6210\u529F \u2705 \u5168\u90E8\u529F\u80FD\u5DF2\u89E3\u9501");
+      location.hash = "#/";
+      render();
+      uiAlert("\u6FC0\u6D3B\u6210\u529F \u2705 \u5168\u90E8\u529F\u80FD\u5DF2\u89E3\u9501");
       location.hash = "#/";
       render();
     } else {
