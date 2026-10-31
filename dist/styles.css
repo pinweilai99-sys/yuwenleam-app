@@ -580,6 +580,27 @@ body.parent-mode .hide-student { display:block; }
 .rl-task.done { background:var(--green-soft, #f6ffed); border-color:#b7eb8f; }
 .rl-task.done span { color:#389e0d; }
 
+/* ---------- 快乐读书吧·深度阅读训练 ---------- */
+.rd-page { max-width: 860px; margin: 0 auto; }
+.rd-tabs { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.rd-tabs .btn.sm { font-size:13px; }
+.rd-summary { background:linear-gradient(135deg,#f0f7ff,#e6f4ff); border-color:#91caff; line-height:1.7; }
+.rd-book-head { display:flex; align-items:center; gap:10px; font-size:17px; background:var(--brand-soft, #e6f0ff); }
+.rd-book-head .muted { font-size:14px; }
+.rd-section-title { font-weight:800; font-size:16px; margin:18px 0 8px; color:#1d39c4; border-left:4px solid var(--brand, #2f6fed); padding-left:10px; }
+.rd-kp { background:#fff; }
+.rd-kp-head { font-weight:700; color:#ad6800; margin-bottom:8px; }
+.drill-passage { background:#fbfcfe; border:1px solid var(--line); border-radius:10px; padding:12px 14px; line-height:1.9; font-size:15px; text-align:justify; }
+.drill-mark { text-decoration:underline; text-decoration-color:#2f6fed; text-underline-offset:3px; cursor:help; background:#fff7e6; border-radius:3px; padding:0 2px; }
+.drill-mark sup { color:#fa8c16; font-weight:800; font-size:11px; margin-right:1px; }
+.drill-mark.revealed { background:#fff1b8; text-decoration-color:#fa8c16; }
+.rd-stat { font-weight:700; color:#1d39c4; margin:6px 0; }
+.rd-q .tag.open { background:#f9f0ff; border-color:#d3adf7; color:#722ed1; }
+.rd-guide { margin-top:8px; }
+.rd-guide summary { cursor:pointer; color:var(--brand); font-weight:600; padding:4px 0; }
+.rd-guide .explain { background:#f0f5ff; border-left:3px solid #2f6fed; border-radius:6px; padding:8px 10px; margin-top:4px; line-height:1.7; }
+.rd-guide .muted { margin-top:4px; }
+
 /* ===== 单元页七关掌握度徽章 + 未掌握内容展开 ===== */
 .gate-badge { display:inline-block; margin-left:8px; padding:1px 10px; border-radius:999px; font-size:12px; font-weight:800; vertical-align:middle; }
 .gate-badge.green { background:var(--green-soft); color:#389e0d; border:1px solid #b7eb8f; }
